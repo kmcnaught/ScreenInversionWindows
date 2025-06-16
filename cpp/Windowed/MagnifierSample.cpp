@@ -12,7 +12,8 @@
 * - Color inversion is applied by default, with keyboard controls:
 *   - I key: Toggle inversion on/off
 *   - C key: Toggle grayscale vs color
-*   - G key: Cycle through 5 gray levels (100%, 80%, 60%, 40%, 20%)
+*   - W key: Cycle through 4 white levels (100%, 80%, 60%, 40%)
+*   - Ctrl+Shift+P: Global hotkey to toggle pin/click-through mode
 * - After selection: WM_NCHITTEST + layered window makes content click-through, frame interactive
 *
 * Requirements: To compile, link to Magnification.lib. The sample must be run with
@@ -69,6 +70,9 @@ BOOL                inversionEnabled = FALSE;
 BOOL                grayscaleEnabled = FALSE;
 int                 grayLevel = 0; // 0-4, representing 5 levels: 100%, 80%, 60%, 40%, 20%
 BOOL                colorEffectsApplied = FALSE;
+BOOL                isPinned = FALSE; // Toggle for click-through behavior
+
+#define HOTKEY_TOGGLE_PIN 1 // Hotkey ID for global shortcut
 
 // Forward declarations.
 ATOM                RegisterHostWindowClass(HINSTANCE hInstance);
@@ -105,6 +109,9 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     // Show maximized instead of using nCmdShow
     ShowWindow(hwndHost, SW_MAXIMIZE);
     UpdateWindow(hwndHost);
+
+    // Register global hotkey (Ctrl+Shift+P) to toggle pin state
+    RegisterHotKey(hwndHost, HOTKEY_TOGGLE_PIN, MOD_CONTROL | MOD_SHIFT, 'P');
 
     // Create a timer to update the control.
     UINT_PTR timerId = SetTimer(hwndHost, 0, timerInterval, UpdateMagWindow);
@@ -199,6 +206,31 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
         }
         break;
 
+    case WM_HOTKEY:
+        if (wParam == HOTKEY_TOGGLE_PIN && selectionState == SELECTION_COMPLETE)
+        {
+            // Toggle pin state
+            isPinned = !isPinned;
+
+            // Update the window's extended style based on pin state
+            LONG exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
+            if (isPinned)
+            {                
+                // Add WS_EX_TRANSPARENT when pinned - window becomes click-through
+                exStyle |= WS_EX_TRANSPARENT;
+            }
+            else
+            {
+                // Remove WS_EX_TRANSPARENT when unpinned - window becomes interactive
+                exStyle &= ~WS_EX_TRANSPARENT;
+            }
+            SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
+
+            // Update window title to show current pin state
+            ApplyColorEffects(); // This will update the title
+        }
+        break;
+
     case WM_SYSCOMMAND:
         if (GET_SC_WPARAM(wParam) == SC_MAXIMIZE)
         {
@@ -211,6 +243,8 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
         break;
 
     case WM_DESTROY:
+        // Unregister the global hotkey
+        UnregisterHotKey(hwndHost, HOTKEY_TOGGLE_PIN);
         PostQuitMessage(0);
         break;
 
