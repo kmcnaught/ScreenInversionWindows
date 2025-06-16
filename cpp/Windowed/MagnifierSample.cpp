@@ -375,34 +375,26 @@ void CALLBACK UpdateMagWindow(HWND /*hwnd*/, UINT /*uMsg*/, UINT_PTR /*idEvent*/
 {
     RECT sourceRect;
 
-    if (selectionState == SELECTION_COMPLETE)
-    {
-        // Use the selected rectangle as the source
-        sourceRect = selectedRect;
-    }
-    else
-    {
-        // Before selection is complete, show the current window area
-        GetWindowRect(hwndHost, &magWindowRectWindow);
-        GetClientRect(hwndHost, &magWindowRectClient);
+    // Always use the current window position to determine what to show
+    GetWindowRect(hwndHost, &magWindowRectWindow);
+    GetClientRect(hwndHost, &magWindowRectClient);
 
-        // Get styles for adjustments
-        LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
-        LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
-        LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
+    // Get styles for adjustments
+    LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
+    LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
+    LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
 
-        int fudge = 4;
+    int fudge = 4;
 
-        sourceRect.left = magWindowRectWindow.left + magWindowRectClient.left + borderWidth + fudge;
-        sourceRect.top = magWindowRectWindow.top + magWindowRectClient.top + titleBarHeight + borderHeight + fudge;
+    sourceRect.left = magWindowRectWindow.left + magWindowRectClient.left + borderWidth + fudge;
+    sourceRect.top = magWindowRectWindow.top + magWindowRectClient.top + titleBarHeight + borderHeight + fudge;
 
-        // Calculate the width and height based on client area size
-        int width = (int)((magWindowRectWindow.right - magWindowRectWindow.left) / MAGFACTOR);
-        int height = (int)((magWindowRectWindow.bottom - magWindowRectWindow.top) / MAGFACTOR);
+    // Calculate the width and height based on client area size
+    int width = (int)((magWindowRectWindow.right - magWindowRectWindow.left) / MAGFACTOR);
+    int height = (int)((magWindowRectWindow.bottom - magWindowRectWindow.top) / MAGFACTOR);
 
-        sourceRect.right = sourceRect.left + width;
-        sourceRect.bottom = sourceRect.top + height;
-    }
+    sourceRect.right = sourceRect.left + width;
+    sourceRect.bottom = sourceRect.top + height;
 
     // Set the source rectangle for the magnifier control.
     MagSetWindowSource(hwndMag, sourceRect);
