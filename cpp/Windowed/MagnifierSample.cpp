@@ -10,7 +10,7 @@
 * - User clicks two points to define a rectangle (one-time operation)
 * - Window resizes to selected rectangle size
 * - Color inversion is applied to the resized window
-* - After selection: client area becomes click-through, frame remains interactive
+* - After selection: SetWindowRgn makes content area click-through while preserving frame interaction
 *
 * Requirements: To compile, link to Magnification.lib. The sample must be run with
 * elevated privileges.
@@ -123,6 +123,28 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 {
     switch (message)
     {
+    case WM_NCHITTEST:
+    {
+        // After selection is complete, make client area transparent to clicks
+        if (selectionState == SELECTION_COMPLETE)
+        {
+            LRESULT hitTest = DefWindowProc(hWnd, message, wParam, lParam);
+
+            // Only make the client area transparent, keep frame elements interactive
+            if (hitTest == HTCLIENT)
+            {
+                return HTTRANSPARENT;
+            }
+
+            return hitTest;
+        }
+        else
+        {
+            return DefWindowProc(hWnd, message, wParam, lParam);
+        }
+    }
+    break;
+
     case WM_LBUTTONDOWN:
     {
         if (selectionState != SELECTION_COMPLETE)
@@ -173,41 +195,6 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 magWindowRectClient.left, magWindowRectClient.top,
                 magWindowRectClient.right - magWindowRectClient.left,
                 magWindowRectClient.bottom - magWindowRectClient.top, 0);
-        }
-
-        // If selection is complete, update the window region after resize
-        if (selectionState == SELECTION_COMPLETE)
-        {
-            // Recreate the region after window size changes
-            RECT windowRect, clientRect;
-            GetWindowRect(hWnd, &windowRect);
-            GetClientRect(hWnd, &clientRect);
-
-            // Convert client rect to window coordinates
-            POINT clientTopLeft = { 0, 0 };
-            ClientToScreen(hWnd, &clientTopLeft);
-
-            int clientLeft = clientTopLeft.x - windowRect.left;
-            int clientTop = clientTopLeft.y - windowRect.top;
-            int clientRight = clientLeft + (clientRect.right - clientRect.left);
-            int clientBottom = clientTop + (clientRect.bottom - clientRect.top);
-
-            // Create the frame region (entire window)
-            HRGN frameRgn = CreateRectRgn(0, 0,
-                windowRect.right - windowRect.left,
-                windowRect.bottom - windowRect.top);
-
-            // Create the client area region to subtract
-            HRGN clientRgn = CreateRectRgn(clientLeft, clientTop, clientRight, clientBottom);
-
-            // Subtract the client area from the frame region
-            CombineRgn(frameRgn, frameRgn, clientRgn, RGN_DIFF);
-
-            // Apply the region to the window
-            SetWindowRgn(hWnd, frameRgn, TRUE);
-
-            // Clean up the client region (frameRgn is now owned by the window)
-            DeleteObject(clientRgn);
         }
         break;
 
@@ -378,36 +365,56 @@ void ResizeToSelectedRectangle()
         selectedRect.left, selectedRect.top, width, height,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
-    // Create a region that includes only the window frame, excluding the client area
-    // This allows clicks on the frame (for resizing, close button) but makes the content click-through
+    // Apply color inversion 
+    ApplyColorInversion();
+
+    // Make the window layered and the client area click-through
+    SetWindowLong(hwndHost, GWL_EXSTYLE,
+        GetWindowLong(hwndHost, GWL_EXSTYLE) | WS_EX_LAYERED);
+
+    // Set the window to be 255 (opaque) but enable per-pixel alpha
+    SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
+}
+
+//
+// FUNCTION: CreateClickThroughRegion()
+//
+// PURPOSE: Creates a window region that excludes the client area for click-through behavior.
+//
+void CreateClickThroughRegion()
+{
     RECT windowRect, clientRect;
     GetWindowRect(hwndHost, &windowRect);
     GetClientRect(hwndHost, &clientRect);
 
-    // Convert client rect to window coordinates
-    POINT clientTopLeft = { 0, 0 };
-    ClientToScreen(hwndHost, &clientTopLeft);
+    // Get frame dimensions
+    int frameWidth = GetSystemMetrics(SM_CXSIZEFRAME);
+    int frameHeight = GetSystemMetrics(SM_CYSIZEFRAME);
+    int captionHeight = GetSystemMetrics(SM_CYCAPTION);
 
-    int clientLeft = clientTopLeft.x - windowRect.left;
-    int clientTop = clientTopLeft.y - windowRect.top;
-    int clientRight = clientLeft + (clientRect.right - clientRect.left);
-    int clientBottom = clientTop + (clientRect.bottom - clientRect.top);
+    // Window dimensions (in window coordinates, so starts at 0,0)
+    int windowWidth = windowRect.right - windowRect.left;
+    int windowHeight = windowRect.bottom - windowRect.top;
 
-    // Create the frame region (entire window)
-    HRGN frameRgn = CreateRectRgn(0, 0,
-        windowRect.right - windowRect.left,
-        windowRect.bottom - windowRect.top);
+    // Client area position within the window
+    int clientLeft = frameWidth;
+    int clientTop = captionHeight + frameHeight;
+    int clientRight = windowWidth - frameWidth;
+    int clientBottom = windowHeight - frameHeight;
 
-    // Create the client area region to subtract
+    // Create the complete window region
+    HRGN windowRgn = CreateRectRgn(0, 0, windowWidth, windowHeight);
+
+    // Create the client area region to exclude
     HRGN clientRgn = CreateRectRgn(clientLeft, clientTop, clientRight, clientBottom);
 
-    // Subtract the client area from the frame region
-    CombineRgn(frameRgn, frameRgn, clientRgn, RGN_DIFF);
+    // Subtract the client area from the window region
+    CombineRgn(windowRgn, windowRgn, clientRgn, RGN_DIFF);
 
     // Apply the region to the window
-    SetWindowRgn(hwndHost, frameRgn, TRUE);
+    SetWindowRgn(hwndHost, windowRgn, TRUE);
 
-    // Clean up the client region (frameRgn is now owned by the window)
+    // Clean up (windowRgn is now owned by the window)
     DeleteObject(clientRgn);
 }
 
