@@ -96,7 +96,7 @@ const char* SavedRectangles::RECTS_FILE = "saved_rects.txt";
 // Global variables and strings.
 HINSTANCE           hInst;
 const TCHAR         WindowClassName[] = TEXT("MagnifierWindow");
-const TCHAR         WindowTitle[] = TEXT("Screen Magnifier - Click two points to select area (or press 0-9 to load saved)");
+const TCHAR         WindowTitle[] = TEXT("Screen Magnifier - Click two points to select area (0=cycle saved, 1-9=load saved)");
 const UINT          timerInterval = 16; // close to the refresh rate @60hz
 HWND                hwndMag;
 HWND                hwndHost;
@@ -120,6 +120,7 @@ BOOL                isPinned = FALSE; // Toggle for click-through behavior
 // Shortcut configuration and saved rectangles
 ShortcutConfig      shortcuts;
 SavedRectangles     savedRects;
+int                 currentCycleSlot = 1; // Start cycling from slot 1
 
 #define HOTKEY_TOGGLE_PIN 1 // Hotkey ID for global shortcut
 
@@ -141,6 +142,7 @@ void                LoadSavedRectangles();
 void                SaveSavedRectangles();
 void                LoadRectangle(int slot);
 void                SaveCurrentRectangle(int slot);
+void                CycleToNextSavedRectangle();
 void                ApplyLoadedRectangle(const RECT& rect);
 BOOL                IsWindows10OrGreater();
 BOOL                isFullScreen = FALSE;
@@ -273,7 +275,7 @@ void SaveSavedRectangles()
 
     rectsFile << "# Saved Rectangle Configurations\n";
     rectsFile << "# Format: SlotNumber=Left,Top,Right,Bottom\n";
-    rectsFile << "# Slots 0-9 available. Use 0-9 to load, Ctrl+0-9 to save.\n\n";
+    rectsFile << "# Slots 1-9 available. Use 0 to cycle, 1-9 to load, Ctrl+1-9 to save.\n\n";
 
     for (int i = 0; i < NUM_SAVED_RECTS; i++)
     {
@@ -316,13 +318,62 @@ void LoadRectangle(int slot)
 }
 
 //
+// FUNCTION: CycleToNextSavedRectangle()
+//
+// PURPOSE: Cycles through all saved rectangles, skipping empty slots.
+//
+void CycleToNextSavedRectangle()
+{
+    int startSlot = currentCycleSlot;
+    int attempts = 0;
+
+    // Look for the next valid saved rectangle (slots 1-9, skip slot 0)
+    do {
+        currentCycleSlot++;
+        if (currentCycleSlot >= NUM_SAVED_RECTS) {
+            currentCycleSlot = 1; // Skip slot 0, start from 1
+        }
+        attempts++;
+    } while (!savedRects.isValid[currentCycleSlot] && attempts < NUM_SAVED_RECTS);
+
+    // If we found a valid slot, load it
+    if (savedRects.isValid[currentCycleSlot]) {
+        ApplyLoadedRectangle(savedRects.rects[currentCycleSlot]);
+
+        // Show which slot was loaded
+        TCHAR message[256];
+        _stprintf_s(message, 256, TEXT("Screen Magnifier - Loaded Slot %d (Press 0 to cycle)"), currentCycleSlot);
+        SetWindowText(hwndHost, message);
+
+        // Reset title after 2 seconds
+        SetTimer(hwndHost, 997, 2000, [](HWND hwnd, UINT, UINT_PTR, DWORD) {
+            ApplyColorEffects(); // This will restore the proper title
+            KillTimer(hwnd, 997);
+            });
+    }
+    else {
+        // No saved rectangles found
+        TCHAR message[256];
+        _stprintf_s(message, 256, TEXT("Screen Magnifier - No saved rectangles found (Use Ctrl+1-9 to save)"));
+        SetWindowText(hwndHost, message);
+
+        // Reset title after 2 seconds
+        SetTimer(hwndHost, 996, 2000, [](HWND hwnd, UINT, UINT_PTR, DWORD) {
+            SetWindowText(hwnd, WindowTitle);
+            KillTimer(hwnd, 996);
+            });
+    }
+}
+
+//
 // FUNCTION: SaveCurrentRectangle()
 //
-// PURPOSE: Saves the current rectangle to the specified slot.
+// PURPOSE: Saves the current rectangle to the specified slot (slots 1-9 only).
 //
 void SaveCurrentRectangle(int slot)
 {
-    if (slot < 0 || slot >= NUM_SAVED_RECTS || selectionState != SELECTION_COMPLETE)
+    // Slot 0 is reserved for cycling - cannot save to it
+    if (slot <= 0 || slot >= NUM_SAVED_RECTS || selectionState != SELECTION_COMPLETE)
         return;
 
     // Get the current window position and size, not the original selected rectangle
@@ -362,7 +413,7 @@ void ApplyLoadedRectangle(const RECT& rect)
     // Update title to show that a rectangle was loaded
     TCHAR instructionText[256];
     _stprintf_s(instructionText, 256,
-        TEXT("Screen Magnifier - Area Loaded (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+0-9=Save)"),
+        TEXT("Screen Magnifier - Area Loaded (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+1-9=Save)"),
         shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
     SetWindowText(hwndHost, instructionText);
 }
@@ -472,7 +523,7 @@ void SaveDefaultShortcutConfig()
     configFile << "GlobalHotkeyModifiers=CTRL+SHIFT\n\n";
 
     configFile << "# Note: Restart the application after changing these settings\n";
-    configFile << "# Rectangle Save/Load: 0-9 to load saved rectangles, Ctrl+0-9 to save current rectangle\n";
+    configFile << "# Rectangle Save/Load: 0=cycle through saved, 1-9=load saved, Ctrl+1-9=save current (Ctrl+0 disabled)\n";
 
     configFile.close();
 }
@@ -556,8 +607,12 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 GoPartialScreen();
             }
         }
-        // Handle number keys for rectangle save/load
-        else if (wParam >= '0' && wParam <= '9')
+        // Cycle through saved rects
+        else if (wParam == '0') {
+            CycleToNextSavedRectangle();
+        }
+        // Rectangle save/load 1-9
+        else if (wParam > '0' && wParam <= '9')
         {
             int slot = wParam - '0';
 
@@ -787,7 +842,7 @@ void HandleRectangleSelection(POINT clickPoint)
         // Create shortcut instruction text with current key bindings
         TCHAR instructionText[256];
         _stprintf_s(instructionText, 256,
-            TEXT("Screen Magnifier - Area Selected (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+0-9=Save)"),
+            TEXT("Screen Magnifier - Area Selected (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+1-9=Save)"),
             shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
         SetWindowText(hwndHost, instructionText);
         break;
@@ -919,7 +974,7 @@ void ApplyColorEffects()
         TCHAR titleText[256];
         float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
 
-        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+0-9=Save)"),
+        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+1-9=Save)"),
             inversionEnabled ? TEXT("Inverted ") : TEXT(""),
             grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
             grayLevels[grayLevel] * 100.0f,
