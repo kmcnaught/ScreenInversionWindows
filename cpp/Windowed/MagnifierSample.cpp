@@ -10,6 +10,7 @@
 * - User clicks two points to define a rectangle (one-time operation)
 * - Window resizes to selected rectangle size
 * - Color inversion is applied to the resized window
+* - After selection: client area becomes click-through, frame remains interactive
 *
 * Requirements: To compile, link to Magnification.lib. The sample must be run with
 * elevated privileges.
@@ -122,6 +123,32 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 {
     switch (message)
     {
+    case WM_NCHITTEST:
+    {
+        // After selection is complete, make client area transparent to clicks
+        // but keep the frame interactive for resizing
+        if (selectionState == SELECTION_COMPLETE)
+        {
+            // Get the default hit test result
+            LRESULT hitTest = DefWindowProc(hWnd, message, wParam, lParam);
+
+            // If the hit test indicates we're in the client area, make it transparent
+            if (hitTest == HTCLIENT)
+            {
+                return HTTRANSPARENT;
+            }
+
+            // For all other areas (frame, borders, resize handles, etc.), keep normal behavior
+            return hitTest;
+        }
+        else
+        {
+            // Before selection is complete, use normal hit testing
+            return DefWindowProc(hWnd, message, wParam, lParam);
+        }
+    }
+    break;
+
     case WM_LBUTTONDOWN:
     {
         if (selectionState != SELECTION_COMPLETE)
@@ -333,6 +360,9 @@ void ResizeToSelectedRectangle()
 
     // Remove the maximized state and set normal window styles
     SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
+
+    // Add WS_EX_TRANSPARENT to make the window click-through
+    SetWindowLong(hwndHost, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT);
 
     // Resize and reposition the window
     SetWindowPos(hwndHost, HWND_TOPMOST,
