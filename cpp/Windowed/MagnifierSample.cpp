@@ -471,9 +471,9 @@ void CalculateColorMatrix(MAGCOLOREFFECT* matrix)
         float bWeight = 0.114f;
 
         // Set all RGB channels to use the same luminance calculation
-        matrix->transform[0][0] = rWeight; matrix->transform[0][1] = gWeight; matrix->transform[0][2] = bWeight;
-        matrix->transform[1][0] = rWeight; matrix->transform[1][1] = gWeight; matrix->transform[1][2] = bWeight;
-        matrix->transform[2][0] = rWeight; matrix->transform[2][1] = gWeight; matrix->transform[2][2] = bWeight;
+        matrix->transform[0][0] = rWeight; matrix->transform[0][1] = rWeight; matrix->transform[0][2] = rWeight;
+        matrix->transform[1][0] = gWeight; matrix->transform[1][1] = gWeight; matrix->transform[1][2] = gWeight;
+        matrix->transform[2][0] = bWeight; matrix->transform[2][1] = bWeight; matrix->transform[2][2] = bWeight;
     }
 
     // Apply inversion if enabled
