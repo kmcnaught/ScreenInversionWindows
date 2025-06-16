@@ -4,7 +4,7 @@
 *
 * Description: Implements a simple control that magnifies the screen, using the
 * Magnification API. Modified to allow rectangle selection and color inversion.
-* Enhanced with configurable shortcuts and dark mode theming.
+* Enhanced with configurable shortcuts, dark mode theming, and rectangle save/load.
 *
 * Modified behavior:
 * - Starts maximized without color effects
@@ -13,6 +13,7 @@
 * - Color inversion is applied by default, with configurable keyboard controls
 * - Dark mode title bar and theming
 * - Configurable shortcuts via shortcuts.txt file
+* - Rectangle save/load: 0-9 to load saved rects, Ctrl+0-9 to save current rect
 *
 * Requirements: To compile, link to Magnification.lib. The sample must be run with
 * elevated privileges. Requires Windows 10 build 17763 or later for dark mode support.
@@ -39,6 +40,7 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <vector>
 
 // Link required libraries
 #pragma comment(lib, "dwmapi.lib")
@@ -46,6 +48,7 @@
 // For simplicity, the sample uses a constant magnification factor.
 #define MAGFACTOR  1.0f
 #define RESTOREDWINDOWSTYLES WS_SIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN | WS_CAPTION | WS_MAXIMIZEBOX
+#define NUM_SAVED_RECTS 10
 
 // Dark mode constants (Windows 10 build 17763+)
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
@@ -74,10 +77,26 @@ struct ShortcutConfig {
 
 const char* ShortcutConfig::CONFIG_FILE = "shortcuts.txt";
 
+// Saved rectangles structure
+struct SavedRectangles {
+    RECT rects[NUM_SAVED_RECTS];
+    bool isValid[NUM_SAVED_RECTS];
+    static const char* RECTS_FILE;
+
+    SavedRectangles() {
+        for (int i = 0; i < NUM_SAVED_RECTS; i++) {
+            isValid[i] = false;
+            memset(&rects[i], 0, sizeof(RECT));
+        }
+    }
+};
+
+const char* SavedRectangles::RECTS_FILE = "saved_rects.txt";
+
 // Global variables and strings.
 HINSTANCE           hInst;
 const TCHAR         WindowClassName[] = TEXT("MagnifierWindow");
-const TCHAR         WindowTitle[] = TEXT("Screen Magnifier - Click two points to select area");
+const TCHAR         WindowTitle[] = TEXT("Screen Magnifier - Click two points to select area (or press 0-9 to load saved)");
 const UINT          timerInterval = 16; // close to the refresh rate @60hz
 HWND                hwndMag;
 HWND                hwndHost;
@@ -98,8 +117,9 @@ int                 grayLevel = 0; // 0-3, representing 4 levels: 100%, 80%, 60%
 BOOL                colorEffectsApplied = FALSE;
 BOOL                isPinned = FALSE; // Toggle for click-through behavior
 
-// Shortcut configuration
+// Shortcut configuration and saved rectangles
 ShortcutConfig      shortcuts;
+SavedRectangles     savedRects;
 
 #define HOTKEY_TOGGLE_PIN 1 // Hotkey ID for global shortcut
 
@@ -117,6 +137,11 @@ void                CalculateColorMatrix(MAGCOLOREFFECT* matrix);
 void                LoadShortcutConfig();
 void                SaveDefaultShortcutConfig();
 void                ApplyDarkModeToWindow(HWND hwnd);
+void                LoadSavedRectangles();
+void                SaveSavedRectangles();
+void                LoadRectangle(int slot);
+void                SaveCurrentRectangle(int slot);
+void                ApplyLoadedRectangle(const RECT& rect);
 BOOL                IsWindows10OrGreater();
 BOOL                isFullScreen = FALSE;
 
@@ -135,8 +160,9 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
         return 0;
     }
 
-    // Load shortcut configuration
+    // Load shortcut configuration and saved rectangles
     LoadShortcutConfig();
+    LoadSavedRectangles();
 
     if (FALSE == SetupMagnifier(hInstance))
     {
@@ -169,6 +195,176 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     KillTimer(NULL, timerId);
     MagUninitialize();
     return (int)msg.wParam;
+}
+
+//
+// FUNCTION: LoadSavedRectangles()
+//
+// PURPOSE: Loads saved rectangle configurations from file.
+//
+void LoadSavedRectangles()
+{
+    std::ifstream rectsFile(SavedRectangles::RECTS_FILE);
+
+    if (!rectsFile.is_open())
+    {
+        // File doesn't exist, initialize with defaults
+        return;
+    }
+
+    std::string line;
+    while (std::getline(rectsFile, line))
+    {
+        // Skip comments and empty lines
+        if (line.empty() || line[0] == '#' || line[0] == ';')
+            continue;
+
+        size_t equalPos = line.find('=');
+        if (equalPos != std::string::npos)
+        {
+            std::string slotStr = line.substr(0, equalPos);
+            std::string rectStr = line.substr(equalPos + 1);
+
+            // Trim whitespace
+            slotStr.erase(0, slotStr.find_first_not_of(" \t"));
+            slotStr.erase(slotStr.find_last_not_of(" \t") + 1);
+            rectStr.erase(0, rectStr.find_first_not_of(" \t"));
+            rectStr.erase(rectStr.find_last_not_of(" \t") + 1);
+
+            int slot = atoi(slotStr.c_str());
+            if (slot >= 0 && slot < NUM_SAVED_RECTS)
+            {
+                // Parse rectangle coordinates: left,top,right,bottom
+                std::stringstream ss(rectStr);
+                std::string coord;
+                std::vector<int> coords;
+
+                while (std::getline(ss, coord, ','))
+                {
+                    coords.push_back(atoi(coord.c_str()));
+                }
+
+                if (coords.size() == 4)
+                {
+                    savedRects.rects[slot].left = coords[0];
+                    savedRects.rects[slot].top = coords[1];
+                    savedRects.rects[slot].right = coords[2];
+                    savedRects.rects[slot].bottom = coords[3];
+                    savedRects.isValid[slot] = true;
+                }
+            }
+        }
+    }
+
+    rectsFile.close();
+}
+
+//
+// FUNCTION: SaveSavedRectangles()
+//
+// PURPOSE: Saves current rectangle configurations to file.
+//
+void SaveSavedRectangles()
+{
+    std::ofstream rectsFile(SavedRectangles::RECTS_FILE);
+
+    if (!rectsFile.is_open())
+        return;
+
+    rectsFile << "# Saved Rectangle Configurations\n";
+    rectsFile << "# Format: SlotNumber=Left,Top,Right,Bottom\n";
+    rectsFile << "# Slots 0-9 available. Use 0-9 to load, Ctrl+0-9 to save.\n\n";
+
+    for (int i = 0; i < NUM_SAVED_RECTS; i++)
+    {
+        if (savedRects.isValid[i])
+        {
+            rectsFile << i << "="
+                << savedRects.rects[i].left << ","
+                << savedRects.rects[i].top << ","
+                << savedRects.rects[i].right << ","
+                << savedRects.rects[i].bottom << "\n";
+        }
+    }
+
+    rectsFile.close();
+}
+
+//
+// FUNCTION: LoadRectangle()
+//
+// PURPOSE: Loads a saved rectangle from the specified slot.
+//
+void LoadRectangle(int slot)
+{
+    if (slot < 0 || slot >= NUM_SAVED_RECTS || !savedRects.isValid[slot])
+    {
+        // Show a brief message that the slot is empty
+        TCHAR message[256];
+        _stprintf_s(message, 256, TEXT("Screen Magnifier - Slot %d is empty"), slot);
+        SetWindowText(hwndHost, message);
+
+        // Reset title after 2 seconds
+        SetTimer(hwndHost, 999, 2000, [](HWND hwnd, UINT, UINT_PTR, DWORD) {
+            SetWindowText(hwnd, WindowTitle);
+            KillTimer(hwnd, 999);
+            });
+        return;
+    }
+
+    ApplyLoadedRectangle(savedRects.rects[slot]);
+}
+
+//
+// FUNCTION: SaveCurrentRectangle()
+//
+// PURPOSE: Saves the current rectangle to the specified slot.
+//
+void SaveCurrentRectangle(int slot)
+{
+    if (slot < 0 || slot >= NUM_SAVED_RECTS || selectionState != SELECTION_COMPLETE)
+        return;
+
+    // Get the current window position and size, not the original selected rectangle
+    RECT currentRect;
+    GetWindowRect(hwndHost, &currentRect);
+
+    savedRects.rects[slot] = currentRect;
+    savedRects.isValid[slot] = true;
+
+    SaveSavedRectangles();
+
+    // Show confirmation message
+    TCHAR message[256];
+    _stprintf_s(message, 256, TEXT("Screen Magnifier - Rectangle saved to slot %d"), slot);
+    SetWindowText(hwndHost, message);
+
+    // Reset title after 2 seconds
+    SetTimer(hwndHost, 998, 2000, [](HWND hwnd, UINT, UINT_PTR, DWORD) {
+        ApplyColorEffects(); // This will restore the proper title
+        KillTimer(hwnd, 998);
+        });
+}
+
+//
+// FUNCTION: ApplyLoadedRectangle()
+//
+// PURPOSE: Applies a loaded rectangle, completing the selection process.
+//
+void ApplyLoadedRectangle(const RECT& rect)
+{
+    selectedRect = rect;
+    selectionState = SELECTION_COMPLETE;
+
+    ResizeToSelectedRectangle();
+    ApplyColorEffects();
+
+    // Update title to show that a rectangle was loaded
+    TCHAR instructionText[256];
+    _stprintf_s(instructionText, 256,
+        TEXT("Screen Magnifier - Area Loaded (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+0-9=Save)"),
+        shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
+    SetWindowText(hwndHost, instructionText);
 }
 
 //
@@ -276,10 +472,10 @@ void SaveDefaultShortcutConfig()
     configFile << "GlobalHotkeyModifiers=CTRL+SHIFT\n\n";
 
     configFile << "# Note: Restart the application after changing these settings\n";
+    configFile << "# Rectangle Save/Load: 0-9 to load saved rectangles, Ctrl+0-9 to save current rectangle\n";
 
     configFile.close();
 }
-
 
 //
 // FUNCTION: ApplyDarkModeToWindow()
@@ -349,11 +545,31 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
     break;
 
     case WM_KEYDOWN:
+    {
+        // Check for Ctrl key state
+        BOOL ctrlPressed = GetKeyState(VK_CONTROL) & 0x8000;
+
         if (wParam == shortcuts.escapeKey)
         {
             if (isFullScreen)
             {
                 GoPartialScreen();
+            }
+        }
+        // Handle number keys for rectangle save/load
+        else if (wParam >= '0' && wParam <= '9')
+        {
+            int slot = wParam - '0';
+
+            if (ctrlPressed && selectionState == SELECTION_COMPLETE)
+            {
+                // Save current rectangle to slot
+                SaveCurrentRectangle(slot);
+            }
+            else if (!ctrlPressed && selectionState == SELECTION_NONE)
+            {
+                // Load rectangle from slot
+                LoadRectangle(slot);
             }
         }
         else if (selectionState == SELECTION_COMPLETE)
@@ -375,7 +591,8 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 ApplyColorEffects();
             }
         }
-        break;
+    }
+    break;
 
     case WM_HOTKEY:
         if (wParam == HOTKEY_TOGGLE_PIN && selectionState == SELECTION_COMPLETE)
@@ -570,7 +787,7 @@ void HandleRectangleSelection(POINT clickPoint)
         // Create shortcut instruction text with current key bindings
         TCHAR instructionText[256];
         _stprintf_s(instructionText, 256,
-            TEXT("Screen Magnifier - Area Selected (%c=Invert, %c=Grayscale, %c=White Level)"),
+            TEXT("Screen Magnifier - Area Selected (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+0-9=Save)"),
             shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
         SetWindowText(hwndHost, instructionText);
         break;
@@ -702,7 +919,7 @@ void ApplyColorEffects()
         TCHAR titleText[256];
         float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
 
-        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level)"),
+        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+0-9=Save)"),
             inversionEnabled ? TEXT("Inverted ") : TEXT(""),
             grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
             grayLevels[grayLevel] * 100.0f,
