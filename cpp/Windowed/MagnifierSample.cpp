@@ -9,8 +9,11 @@
 * - Starts maximized without color effects
 * - User clicks two points to define a rectangle (one-time operation)
 * - Window resizes to selected rectangle size
-* - Color inversion is applied to the resized window
-* - After selection: SetWindowRgn makes content area click-through while preserving frame interaction
+* - Color inversion is applied by default, with keyboard controls:
+*   - I key: Toggle inversion on/off
+*   - C key: Toggle grayscale vs color
+*   - G key: Cycle through 5 gray levels (100%, 80%, 60%, 40%, 20%)
+* - After selection: WM_NCHITTEST + layered window makes content click-through, frame interactive
 *
 * Requirements: To compile, link to Magnification.lib. The sample must be run with
 * elevated privileges.
@@ -30,6 +33,8 @@
 #include <windowsx.h>
 #include <wincodec.h>
 #include <magnification.h>
+#include <tchar.h>
+#include <stdio.h>
 
 // For simplicity, the sample uses a constant magnification factor.
 #define MAGFACTOR  1.0f
@@ -58,7 +63,12 @@ SelectionState      selectionState = SELECTION_NONE;
 POINT               firstPoint;
 POINT               secondPoint;
 RECT                selectedRect;
-BOOL                colorInversionApplied = FALSE;
+
+// Color effect state variables
+BOOL                inversionEnabled = FALSE;
+BOOL                grayscaleEnabled = FALSE;
+int                 grayLevel = 0; // 0-4, representing 5 levels: 100%, 80%, 60%, 40%, 20%
+BOOL                colorEffectsApplied = FALSE;
 
 // Forward declarations.
 ATOM                RegisterHostWindowClass(HINSTANCE hInstance);
@@ -69,7 +79,8 @@ void                GoFullScreen();
 void                GoPartialScreen();
 void                HandleRectangleSelection(POINT clickPoint);
 void                ResizeToSelectedRectangle();
-void                ApplyColorInversion();
+void                ApplyColorEffects();
+void                CalculateColorMatrix(MAGCOLOREFFECT* matrix);
 BOOL                isFullScreen = FALSE;
 
 //
@@ -82,8 +93,6 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     _In_ LPSTR     /*lpCmdLine*/,
     _In_ int       nCmdShow)
 {
-    nCmdShow = 0;//FIXME: just to ignroe warning error
-
     if (FALSE == MagInitialize())
     {
         return 0;
@@ -167,6 +176,25 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             if (isFullScreen)
             {
                 GoPartialScreen();
+            }
+        }
+        else if (selectionState == SELECTION_COMPLETE)
+        {
+            // Only allow color shortcuts after selection is complete
+            switch (wParam)
+            {
+            case 'I': // Toggle inversion
+                inversionEnabled = !inversionEnabled;
+                ApplyColorEffects();
+                break;
+            case 'C': // Toggle grayscale vs color
+                grayscaleEnabled = !grayscaleEnabled;
+                ApplyColorEffects();
+                break;
+            case 'G': // Cycle through gray levels (5 settings: 100%, 80%, 60%, 40%, 20%)
+                grayLevel = (grayLevel + 1) % 5;
+                ApplyColorEffects();
+                break;
             }
         }
         break;
@@ -331,9 +359,9 @@ void HandleRectangleSelection(POINT clickPoint)
             selectedRect.bottom = selectedRect.top + 100;
 
         ResizeToSelectedRectangle();
-        ApplyColorInversion();
+        ApplyColorEffects();
 
-        SetWindowText(hwndHost, TEXT("Screen Magnifier - Area Selected"));
+        SetWindowText(hwndHost, TEXT("Screen Magnifier - Area Selected (I=Invert, C=Grayscale, G=Gray Level)"));
         break;
     }
 }
@@ -365,8 +393,9 @@ void ResizeToSelectedRectangle()
         selectedRect.left, selectedRect.top, width, height,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
-    // Apply color inversion 
-    ApplyColorInversion();
+    // Apply initial color effects (start with inversion enabled by default)
+    inversionEnabled = TRUE;
+    ApplyColorEffects();
 
     // Make the window layered and the client area click-through
     SetWindowLong(hwndHost, GWL_EXSTYLE,
@@ -419,28 +448,94 @@ void CreateClickThroughRegion()
 }
 
 //
-// FUNCTION: ApplyColorInversion()
+// FUNCTION: CalculateColorMatrix()
 //
-// PURPOSE: Applies color inversion effect to the magnifier.
+// PURPOSE: Calculates the color transformation matrix based on current settings.
 //
-void ApplyColorInversion()
+void CalculateColorMatrix(MAGCOLOREFFECT* matrix)
 {
-    if (colorInversionApplied)
-        return;
+    // Initialize identity matrix
+    memset(matrix, 0, sizeof(MAGCOLOREFFECT));
+    matrix->transform[0][0] = 1.0f; // Red
+    matrix->transform[1][1] = 1.0f; // Green  
+    matrix->transform[2][2] = 1.0f; // Blue
+    matrix->transform[3][3] = 1.0f; // Alpha
+    matrix->transform[4][4] = 1.0f; // Translation
 
-    MAGCOLOREFFECT magEffectInvert =
-    { { // MagEffectInvert [RGB, alpha, colour translation]
-        { -1.0f,  0.0f,  0.0f,  0.0f,  0.0f },
-        {  0.0f, -1.0f,  0.0f,  0.0f,  0.0f },
-        {  0.0f,  0.0f, -1.0f,  0.0f,  0.0f },
-        {  0.0f,  0.0f,  0.0f,  1.0f,  0.0f },
-        {  1.0f,  1.0f,  1.0f,  0.0f,  1.0f }
-    } };
+    // Apply grayscale conversion if enabled
+    if (grayscaleEnabled)
+    {
+        // Luminance weights for RGB to grayscale conversion
+        float rWeight = 0.299f;
+        float gWeight = 0.587f;
+        float bWeight = 0.114f;
 
-    BOOL ret = MagSetColorEffect(hwndMag, &magEffectInvert);
+        // Set all RGB channels to use the same luminance calculation
+        matrix->transform[0][0] = rWeight; matrix->transform[0][1] = gWeight; matrix->transform[0][2] = bWeight;
+        matrix->transform[1][0] = rWeight; matrix->transform[1][1] = gWeight; matrix->transform[1][2] = bWeight;
+        matrix->transform[2][0] = rWeight; matrix->transform[2][1] = gWeight; matrix->transform[2][2] = bWeight;
+    }
+
+    // Apply inversion if enabled
+    if (inversionEnabled)
+    {
+        // Invert RGB channels
+        matrix->transform[0][0] *= -1.0f; matrix->transform[0][1] *= -1.0f; matrix->transform[0][2] *= -1.0f;
+        matrix->transform[1][0] *= -1.0f; matrix->transform[1][1] *= -1.0f; matrix->transform[1][2] *= -1.0f;
+        matrix->transform[2][0] *= -1.0f; matrix->transform[2][1] *= -1.0f; matrix->transform[2][2] *= -1.0f;
+
+        // Add inversion offset
+        matrix->transform[4][0] = 1.0f; // Red offset
+        matrix->transform[4][1] = 1.0f; // Green offset
+        matrix->transform[4][2] = 1.0f; // Blue offset
+    }
+
+    // Apply gray level scaling (brightness reduction)
+    float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f, 0.2f }; // 100%, 80%, 60%, 40%, 20%
+    float scale = grayLevels[grayLevel];
+
+    if (scale != 1.0f)
+    {
+        // Scale RGB channels
+        matrix->transform[0][0] *= scale; matrix->transform[0][1] *= scale; matrix->transform[0][2] *= scale;
+        matrix->transform[1][0] *= scale; matrix->transform[1][1] *= scale; matrix->transform[1][2] *= scale;
+        matrix->transform[2][0] *= scale; matrix->transform[2][1] *= scale; matrix->transform[2][2] *= scale;
+
+        // Scale translation components if inversion is enabled
+        if (inversionEnabled)
+        {
+            matrix->transform[4][0] *= scale;
+            matrix->transform[4][1] *= scale;
+            matrix->transform[4][2] *= scale;
+        }
+    }
+}
+
+//
+// FUNCTION: ApplyColorEffects()
+//
+// PURPOSE: Applies the current color effect settings to the magnifier.
+//
+void ApplyColorEffects()
+{
+    MAGCOLOREFFECT matrix;
+    CalculateColorMatrix(&matrix);
+
+    BOOL ret = MagSetColorEffect(hwndMag, &matrix);
     if (ret)
     {
-        colorInversionApplied = TRUE;
+        colorEffectsApplied = TRUE;
+
+        // Update window title to show current settings
+        TCHAR titleText[256];
+        float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f, 0.2f };
+
+        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (I=Invert, C=Grayscale, G=Gray Level)"),
+            inversionEnabled ? TEXT("Inverted ") : TEXT(""),
+            grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
+            grayLevels[grayLevel] * 100.0f);
+
+        SetWindowText(hwndHost, titleText);
     }
 }
 
