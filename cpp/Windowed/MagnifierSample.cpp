@@ -7,7 +7,7 @@
 *
 * Modified behavior:
 * - Starts maximized without color effects
-* - User clicks two points to define a rectangle
+* - User clicks two points to define a rectangle (one-time operation)
 * - Window resizes to selected rectangle size
 * - Color inversion is applied to the resized window
 *
@@ -144,12 +144,6 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             if (isFullScreen)
             {
                 GoPartialScreen();
-            }
-            else if (selectionState != SELECTION_NONE)
-            {
-                // Reset selection
-                selectionState = SELECTION_NONE;
-                SetWindowText(hwndHost, TEXT("Screen Magnifier - Click two points to select area"));
             }
         }
         break;
@@ -313,11 +307,7 @@ void HandleRectangleSelection(POINT clickPoint)
         ResizeToSelectedRectangle();
         ApplyColorInversion();
 
-        SetWindowText(hwndHost, TEXT("Screen Magnifier - Area Selected (ESC to reset)"));
-        break;
-
-    case SELECTION_COMPLETE:
-        // Already complete, ignore additional clicks
+        SetWindowText(hwndHost, TEXT("Screen Magnifier - Area Selected"));
         break;
     }
 }
@@ -335,13 +325,19 @@ void ResizeToSelectedRectangle()
     int width = selectedRect.right - selectedRect.left;
     int height = selectedRect.bottom - selectedRect.top;
 
+    // First, ensure the window is in normal (not maximized) state
+    ShowWindow(hwndHost, SW_RESTORE);
+
     // Update host window rect for future reference
     hostWindowRect = selectedRect;
+
+    // Remove the maximized state and set normal window styles
+    SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
 
     // Resize and reposition the window
     SetWindowPos(hwndHost, HWND_TOPMOST,
         selectedRect.left, selectedRect.top, width, height,
-        SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
 //
