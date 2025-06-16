@@ -4,20 +4,18 @@
 *
 * Description: Implements a simple control that magnifies the screen, using the
 * Magnification API. Modified to allow rectangle selection and color inversion.
+* Enhanced with configurable shortcuts and dark mode theming.
 *
 * Modified behavior:
 * - Starts maximized without color effects
 * - User clicks two points to define a rectangle (one-time operation)
 * - Window resizes to selected rectangle size
-* - Color inversion is applied by default, with keyboard controls:
-*   - I key: Toggle inversion on/off
-*   - C key: Toggle grayscale vs color
-*   - W key: Cycle through 4 white levels (100%, 80%, 60%, 40%)
-*   - Ctrl+Shift+P: Global hotkey to toggle pin/click-through mode
-* - After selection: WM_NCHITTEST + layered window makes content click-through, frame interactive
+* - Color inversion is applied by default, with configurable keyboard controls
+* - Dark mode title bar and theming
+* - Configurable shortcuts via shortcuts.txt file
 *
 * Requirements: To compile, link to Magnification.lib. The sample must be run with
-* elevated privileges.
+* elevated privileges. Requires Windows 10 build 17763 or later for dark mode support.
 *
 *  This file is part of the Microsoft WinfFX SDK Code Samples.
 *
@@ -27,19 +25,32 @@
 
 // Ensure that the following definition is in effect before winuser.h is included.
 #ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0501    
+#define _WIN32_WINNT 0x0A00    // Windows 10
 #endif
 
 #include <windows.h>
 #include <windowsx.h>
 #include <wincodec.h>
 #include <magnification.h>
+#include <dwmapi.h>
 #include <tchar.h>
 #include <stdio.h>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <map>
+
+// Link required libraries
+#pragma comment(lib, "dwmapi.lib")
 
 // For simplicity, the sample uses a constant magnification factor.
 #define MAGFACTOR  1.0f
 #define RESTOREDWINDOWSTYLES WS_SIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN | WS_CAPTION | WS_MAXIMIZEBOX
+
+// Dark mode constants (Windows 10 build 17763+)
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
 
 // Rectangle selection states
 enum SelectionState {
@@ -47,6 +58,21 @@ enum SelectionState {
     SELECTION_FIRST_POINT,
     SELECTION_COMPLETE
 };
+
+// Configurable shortcuts structure
+struct ShortcutConfig {
+    UINT toggleInvertKey = 'I';
+    UINT toggleGrayscaleKey = 'C';
+    UINT cycleWhiteLevelKey = 'W';
+    UINT escapeKey = VK_ESCAPE;
+    UINT globalHotkeyModifiers = MOD_CONTROL | MOD_SHIFT;
+    UINT globalHotkeyKey = 'P';
+
+    // File path for config
+    static const char* CONFIG_FILE;
+};
+
+const char* ShortcutConfig::CONFIG_FILE = "shortcuts.txt";
 
 // Global variables and strings.
 HINSTANCE           hInst;
@@ -68,9 +94,12 @@ RECT                selectedRect;
 // Color effect state variables
 BOOL                inversionEnabled = FALSE;
 BOOL                grayscaleEnabled = FALSE;
-int                 grayLevel = 0; // 0-4, representing 5 levels: 100%, 80%, 60%, 40%, 20%
+int                 grayLevel = 0; // 0-3, representing 4 levels: 100%, 80%, 60%, 40%
 BOOL                colorEffectsApplied = FALSE;
 BOOL                isPinned = FALSE; // Toggle for click-through behavior
+
+// Shortcut configuration
+ShortcutConfig      shortcuts;
 
 #define HOTKEY_TOGGLE_PIN 1 // Hotkey ID for global shortcut
 
@@ -85,6 +114,10 @@ void                HandleRectangleSelection(POINT clickPoint);
 void                ResizeToSelectedRectangle();
 void                ApplyColorEffects();
 void                CalculateColorMatrix(MAGCOLOREFFECT* matrix);
+void                LoadShortcutConfig();
+void                SaveDefaultShortcutConfig();
+void                ApplyDarkModeToWindow(HWND hwnd);
+BOOL                IsWindows10OrGreater();
 BOOL                isFullScreen = FALSE;
 
 //
@@ -101,17 +134,25 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     {
         return 0;
     }
+
+    // Load shortcut configuration
+    LoadShortcutConfig();
+
     if (FALSE == SetupMagnifier(hInstance))
     {
         return 0;
     }
 
+    // Apply dark mode theming
+    ApplyDarkModeToWindow(hwndHost);
+
     // Show maximized instead of using nCmdShow
     ShowWindow(hwndHost, SW_MAXIMIZE);
     UpdateWindow(hwndHost);
 
-    // Register global hotkey (Ctrl+Shift+P) to toggle pin state
-    RegisterHotKey(hwndHost, HOTKEY_TOGGLE_PIN, MOD_CONTROL | MOD_SHIFT, 'P');
+    // Register global hotkey using configured values
+    RegisterHotKey(hwndHost, HOTKEY_TOGGLE_PIN,
+        shortcuts.globalHotkeyModifiers, shortcuts.globalHotkeyKey);
 
     // Create a timer to update the control.
     UINT_PTR timerId = SetTimer(hwndHost, 0, timerInterval, UpdateMagWindow);
@@ -128,6 +169,136 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     KillTimer(NULL, timerId);
     MagUninitialize();
     return (int)msg.wParam;
+}
+
+//
+// FUNCTION: LoadShortcutConfig()
+//
+// PURPOSE: Loads shortcut configuration from file, creates default if not found.
+//
+void LoadShortcutConfig()
+{
+    std::ifstream configFile(ShortcutConfig::CONFIG_FILE);
+
+    if (!configFile.is_open())
+    {
+        // File doesn't exist, create default configuration
+        SaveDefaultShortcutConfig();
+        return;
+    }
+
+    std::string line;
+    std::map<std::string, std::string> configMap;
+
+    // Parse the config file
+    while (std::getline(configFile, line))
+    {
+        // Skip comments and empty lines
+        if (line.empty() || line[0] == '#' || line[0] == ';')
+            continue;
+
+        size_t equalPos = line.find('=');
+        if (equalPos != std::string::npos)
+        {
+            std::string key = line.substr(0, equalPos);
+            std::string value = line.substr(equalPos + 1);
+
+            // Trim whitespace
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            value.erase(0, value.find_first_not_of(" \t"));
+            value.erase(value.find_last_not_of(" \t") + 1);
+
+            configMap[key] = value;
+        }
+    }
+
+    // Apply configuration values
+    if (configMap.find("ToggleInvertKey") != configMap.end())
+        shortcuts.toggleInvertKey = configMap["ToggleInvertKey"][0];
+
+    if (configMap.find("ToggleGrayscaleKey") != configMap.end())
+        shortcuts.toggleGrayscaleKey = configMap["ToggleGrayscaleKey"][0];
+
+    if (configMap.find("CycleWhiteLevelKey") != configMap.end())
+        shortcuts.cycleWhiteLevelKey = configMap["CycleWhiteLevelKey"][0];
+
+    if (configMap.find("GlobalHotkeyKey") != configMap.end())
+        shortcuts.globalHotkeyKey = configMap["GlobalHotkeyKey"][0];
+
+    // Parse modifier keys
+    if (configMap.find("GlobalHotkeyModifiers") != configMap.end())
+    {
+        std::string modStr = configMap["GlobalHotkeyModifiers"];
+        shortcuts.globalHotkeyModifiers = 0;
+
+        if (modStr.find("CTRL") != std::string::npos)
+            shortcuts.globalHotkeyModifiers |= MOD_CONTROL;
+        if (modStr.find("SHIFT") != std::string::npos)
+            shortcuts.globalHotkeyModifiers |= MOD_SHIFT;
+        if (modStr.find("ALT") != std::string::npos)
+            shortcuts.globalHotkeyModifiers |= MOD_ALT;
+        if (modStr.find("WIN") != std::string::npos)
+            shortcuts.globalHotkeyModifiers |= MOD_WIN;
+    }
+
+    configFile.close();
+}
+
+//
+// FUNCTION: SaveDefaultShortcutConfig()
+//
+// PURPOSE: Creates a default shortcut configuration file.
+//
+void SaveDefaultShortcutConfig()
+{
+    std::ofstream configFile(ShortcutConfig::CONFIG_FILE);
+
+    if (!configFile.is_open())
+        return;
+
+    configFile << "# Magnifier Shortcut Configuration\n";
+    configFile << "# Edit these values to customize keyboard shortcuts\n";
+    configFile << "# Use single characters for keys (case sensitive)\n\n";
+
+    configFile << "# Toggle color inversion on/off\n";
+    configFile << "ToggleInvertKey=I\n\n";
+
+    configFile << "# Toggle between grayscale and color\n";
+    configFile << "ToggleGrayscaleKey=C\n\n";
+
+    configFile << "# Cycle through white/brightness levels\n";
+    configFile << "CycleWhiteLevelKey=W\n\n";
+
+    configFile << "# Global hotkey to toggle pin/click-through mode\n";
+    configFile << "GlobalHotkeyKey=P\n";
+    configFile << "# Modifier keys: CTRL, SHIFT, ALT, WIN (combine with +)\n";
+    configFile << "GlobalHotkeyModifiers=CTRL+SHIFT\n\n";
+
+    configFile << "# Note: Restart the application after changing these settings\n";
+
+    configFile.close();
+}
+
+
+//
+// FUNCTION: ApplyDarkModeToWindow()
+//
+// PURPOSE: Applies dark mode theming to the window title bar and frame.
+//
+void ApplyDarkModeToWindow(HWND hwnd)
+{
+    // Enable dark mode for the title bar
+    BOOL darkMode = TRUE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkMode, sizeof(darkMode));
+
+    // Set dark title bar color (optional, requires Windows 11 22000+)
+    COLORREF darkTitleBar = RGB(32, 32, 32);
+    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &darkTitleBar, sizeof(darkTitleBar));
+
+    // Set dark border color
+    COLORREF darkBorder = RGB(64, 64, 64);
+    DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &darkBorder, sizeof(darkBorder));
 }
 
 //
@@ -178,7 +349,7 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
     break;
 
     case WM_KEYDOWN:
-        if (wParam == VK_ESCAPE)
+        if (wParam == shortcuts.escapeKey)
         {
             if (isFullScreen)
             {
@@ -187,21 +358,21 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
         }
         else if (selectionState == SELECTION_COMPLETE)
         {
-            // Only allow color shortcuts after selection is complete
-            switch (wParam)
+            // Use configurable shortcuts after selection is complete
+            if (wParam == shortcuts.toggleInvertKey)
             {
-            case 'I': // Toggle inversion
                 inversionEnabled = !inversionEnabled;
                 ApplyColorEffects();
-                break;
-            case 'C': // Toggle grayscale vs color
+            }
+            else if (wParam == shortcuts.toggleGrayscaleKey)
+            {
                 grayscaleEnabled = !grayscaleEnabled;
                 ApplyColorEffects();
-                break;
-            case 'W': // Cycle through white/gray levels (5 settings: 100%, 80%, 60%, 40%)
+            }
+            else if (wParam == shortcuts.cycleWhiteLevelKey)
+            {
                 grayLevel = (grayLevel + 1) % 4;
                 ApplyColorEffects();
-                break;
             }
         }
         break;
@@ -215,7 +386,7 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             // Update the window's extended style based on pin state
             LONG exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
             if (isPinned)
-            {                
+            {
                 // Add WS_EX_TRANSPARENT when pinned - window becomes click-through
                 exStyle |= WS_EX_TRANSPARENT;
             }
@@ -293,7 +464,8 @@ ATOM RegisterHostWindowClass(HINSTANCE hInstance)
     wcex.lpfnWndProc = HostWndProc;
     wcex.hInstance = hInstance;
     wcex.hCursor = LoadCursor(NULL, IDC_CROSS); // Changed to cross cursor for selection
-    wcex.hbrBackground = (HBRUSH)(1 + COLOR_BTNFACE);
+    // Use dark background brush
+    wcex.hbrBackground = CreateSolidBrush(RGB(32, 32, 32));
     wcex.lpszClassName = WindowClassName;
 
     return RegisterClassEx(&wcex);
@@ -395,7 +567,12 @@ void HandleRectangleSelection(POINT clickPoint)
         ResizeToSelectedRectangle();
         ApplyColorEffects();
 
-        SetWindowText(hwndHost, TEXT("Screen Magnifier - Area Selected (I=Invert, C=Grayscale, G=Gray Level)"));
+        // Create shortcut instruction text with current key bindings
+        TCHAR instructionText[256];
+        _stprintf_s(instructionText, 256,
+            TEXT("Screen Magnifier - Area Selected (%c=Invert, %c=Grayscale, %c=White Level)"),
+            shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
+        SetWindowText(hwndHost, instructionText);
         break;
     }
 }
@@ -427,6 +604,9 @@ void ResizeToSelectedRectangle()
         selectedRect.left, selectedRect.top, width, height,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
+    // Reapply dark mode after style changes
+    ApplyDarkModeToWindow(hwndHost);
+
     // Apply initial color effects (start with inversion enabled by default)
     inversionEnabled = TRUE;
     ApplyColorEffects();
@@ -437,48 +617,6 @@ void ResizeToSelectedRectangle()
 
     // Set the window to be 255 (opaque) but enable per-pixel alpha
     SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
-}
-
-//
-// FUNCTION: CreateClickThroughRegion()
-//
-// PURPOSE: Creates a window region that excludes the client area for click-through behavior.
-//
-void CreateClickThroughRegion()
-{
-    RECT windowRect, clientRect;
-    GetWindowRect(hwndHost, &windowRect);
-    GetClientRect(hwndHost, &clientRect);
-
-    // Get frame dimensions
-    int frameWidth = GetSystemMetrics(SM_CXSIZEFRAME);
-    int frameHeight = GetSystemMetrics(SM_CYSIZEFRAME);
-    int captionHeight = GetSystemMetrics(SM_CYCAPTION);
-
-    // Window dimensions (in window coordinates, so starts at 0,0)
-    int windowWidth = windowRect.right - windowRect.left;
-    int windowHeight = windowRect.bottom - windowRect.top;
-
-    // Client area position within the window
-    int clientLeft = frameWidth;
-    int clientTop = captionHeight + frameHeight;
-    int clientRight = windowWidth - frameWidth;
-    int clientBottom = windowHeight - frameHeight;
-
-    // Create the complete window region
-    HRGN windowRgn = CreateRectRgn(0, 0, windowWidth, windowHeight);
-
-    // Create the client area region to exclude
-    HRGN clientRgn = CreateRectRgn(clientLeft, clientTop, clientRight, clientBottom);
-
-    // Subtract the client area from the window region
-    CombineRgn(windowRgn, windowRgn, clientRgn, RGN_DIFF);
-
-    // Apply the region to the window
-    SetWindowRgn(hwndHost, windowRgn, TRUE);
-
-    // Clean up (windowRgn is now owned by the window)
-    DeleteObject(clientRgn);
 }
 
 //
@@ -525,7 +663,7 @@ void CalculateColorMatrix(MAGCOLOREFFECT* matrix)
     }
 
     // Apply gray level scaling (brightness reduction)
-    float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f}; // 100%, 80%, 60%, 40%
+    float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f }; // 100%, 80%, 60%, 40%
     float scale = grayLevels[grayLevel];
 
     if (scale != 1.0f)
@@ -560,14 +698,15 @@ void ApplyColorEffects()
     {
         colorEffectsApplied = TRUE;
 
-        // Update window title to show current settings
+        // Update window title to show current settings with current key bindings
         TCHAR titleText[256];
         float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
 
-        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (I=Invert, C=Colour, W=White level)"),
+        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level)"),
             inversionEnabled ? TEXT("Inverted ") : TEXT(""),
             grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
-            grayLevels[grayLevel] * 100.0f);
+            grayLevels[grayLevel] * 100.0f,
+            shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
 
         SetWindowText(hwndHost, titleText);
     }
@@ -666,4 +805,7 @@ void GoPartialScreen()
         hostWindowRect.left, hostWindowRect.top,
         hostWindowRect.right, hostWindowRect.bottom,
         SWP_SHOWWINDOW | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // Reapply dark mode after style changes
+    ApplyDarkModeToWindow(hwndHost);
 }
