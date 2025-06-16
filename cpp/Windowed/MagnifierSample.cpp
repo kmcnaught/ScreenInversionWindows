@@ -125,6 +125,7 @@ BOOL                grayscaleEnabled = FALSE;
 int                 grayLevel = 0; // 0-3, representing 4 levels: 100%, 80%, 60%, 40%
 BOOL                colorEffectsApplied = FALSE;
 BOOL                isPinned = FALSE; // Toggle for click-through behavior
+HWND                previousForegroundWindow = NULL; // Track previous focus for unpinning
 
 // Shortcut configuration and saved rectangles
 ShortcutConfig      shortcuts;
@@ -698,6 +699,17 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
     }
     break;
 
+    case WM_SETFOCUS:
+        // Track the previous foreground window when we gain focus
+        // (This will be used to restore focus when pinning)
+        if (!isPinned) {
+            HWND currentForeground = GetForegroundWindow();
+            if (currentForeground != hWnd) {
+                previousForegroundWindow = currentForeground;
+            }
+        }
+        return DefWindowProc(hWnd, message, wParam, lParam);
+
     case WM_HOTKEY:
         if (wParam == HOTKEY_TOGGLE_PIN && selectionState == SELECTION_COMPLETE)
         {
@@ -708,15 +720,43 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             LONG exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
             if (isPinned)
             {
+                // Store current foreground window before pinning
+                previousForegroundWindow = GetForegroundWindow();
+
                 // Add WS_EX_TRANSPARENT when pinned - window becomes click-through
                 exStyle |= WS_EX_TRANSPARENT;
+                SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
+
+                // Find window underneath mouse cursor and give it focus
+                POINT cursorPos;
+                GetCursorPos(&cursorPos);
+                HWND windowUnderCursor = WindowFromPoint(cursorPos);
+
+                // If we found a valid window that's not us, set focus to it
+                if (windowUnderCursor && windowUnderCursor != hWnd && windowUnderCursor != hwndMag)
+                {
+                    // Get the top-level parent window
+                    HWND topWindow = GetAncestor(windowUnderCursor, GA_ROOT);
+                    if (topWindow && topWindow != hWnd)
+                    {
+                        SetForegroundWindow(topWindow);
+                    }
+                }
+                else if (previousForegroundWindow && IsWindow(previousForegroundWindow))
+                {
+                    // Fallback to previously focused window
+                    SetForegroundWindow(previousForegroundWindow);
+                }
             }
             else
             {
                 // Remove WS_EX_TRANSPARENT when unpinned - window becomes interactive
                 exStyle &= ~WS_EX_TRANSPARENT;
+                SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
+
+                // Restore focus to our window when unpinning
+                SetForegroundWindow(hWnd);
             }
-            SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
 
             // Update window title to show current pin state
             ApplyColorEffects(); // This will update the title
