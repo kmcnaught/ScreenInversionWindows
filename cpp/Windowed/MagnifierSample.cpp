@@ -191,8 +191,8 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 grayscaleEnabled = !grayscaleEnabled;
                 ApplyColorEffects();
                 break;
-            case 'G': // Cycle through gray levels (5 settings: 100%, 80%, 60%, 40%, 20%)
-                grayLevel = (grayLevel + 1) % 5;
+            case 'W': // Cycle through white/gray levels (5 settings: 100%, 80%, 60%, 40%)
+                grayLevel = (grayLevel + 1) % 4;
                 ApplyColorEffects();
                 break;
             }
@@ -491,7 +491,7 @@ void CalculateColorMatrix(MAGCOLOREFFECT* matrix)
     }
 
     // Apply gray level scaling (brightness reduction)
-    float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f, 0.2f }; // 100%, 80%, 60%, 40%, 20%
+    float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f}; // 100%, 80%, 60%, 40%
     float scale = grayLevels[grayLevel];
 
     if (scale != 1.0f)
@@ -528,9 +528,9 @@ void ApplyColorEffects()
 
         // Update window title to show current settings
         TCHAR titleText[256];
-        float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f, 0.2f };
+        float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
 
-        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (I=Invert, C=Grayscale, G=Gray Level)"),
+        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (I=Invert, C=Colour, W=White level)"),
             inversionEnabled ? TEXT("Inverted ") : TEXT(""),
             grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
             grayLevels[grayLevel] * 100.0f);
