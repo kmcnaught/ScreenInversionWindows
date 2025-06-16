@@ -241,6 +241,7 @@ BOOL SetupMagnifier(HINSTANCE hinst)
 
     BOOL ret = MagSetWindowTransform(hwndMag, &matrix);
 
+    float whiteAmount = 0.6f; // 1.0 = full whites, reduce to take edge off bright whites
     if (ret)
     {
         MAGCOLOREFFECT magEffectInvert = 
@@ -249,7 +250,7 @@ BOOL SetupMagnifier(HINSTANCE hinst)
             {  0.0f, -1.0f,  0.0f,  0.0f,  0.0f },
             {  0.0f,  0.0f, -1.0f,  0.0f,  0.0f },
             {  0.0f,  0.0f,  0.0f,  1.0f,  0.0f },
-            {  1.0f,  1.0f,  1.0f,  0.0f,  1.0f } 
+            {  whiteAmount, whiteAmount, whiteAmount,  0.0f,  1.0f }
         }};
 
         ret = MagSetColorEffect(hwndMag,&magEffectInvert);
