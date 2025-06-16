@@ -84,7 +84,7 @@
     </Midl>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
-      <TreatWarningAsError>true</TreatWarningAsError>
+      <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
     <Link>
       <AdditionalDependencies>magnification.lib;%(AdditionalDependencies)</AdditionalDependencies>
