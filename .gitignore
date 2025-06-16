@@ -1,3 +1,5 @@
 ﻿cpp/.vs
 cpp/Windowed/x64
 cpp/x64
+cpp/Windowed/shortcuts.txt
+cpp/Windowed/saved_rects.txt
