@@ -123,32 +123,6 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 {
     switch (message)
     {
-    case WM_NCHITTEST:
-    {
-        // After selection is complete, make client area transparent to clicks
-        // but keep the frame interactive for resizing
-        if (selectionState == SELECTION_COMPLETE)
-        {
-            // Get the default hit test result
-            LRESULT hitTest = DefWindowProc(hWnd, message, wParam, lParam);
-
-            // If the hit test indicates we're in the client area, make it transparent
-            if (hitTest == HTCLIENT)
-            {
-                return HTTRANSPARENT;
-            }
-
-            // For all other areas (frame, borders, resize handles, etc.), keep normal behavior
-            return hitTest;
-        }
-        else
-        {
-            // Before selection is complete, use normal hit testing
-            return DefWindowProc(hWnd, message, wParam, lParam);
-        }
-    }
-    break;
-
     case WM_LBUTTONDOWN:
     {
         if (selectionState != SELECTION_COMPLETE)
@@ -197,7 +171,43 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             // Resize the control to fill the window.
             SetWindowPos(hwndMag, NULL,
                 magWindowRectClient.left, magWindowRectClient.top,
-                magWindowRectClient.right, magWindowRectClient.bottom, 0);
+                magWindowRectClient.right - magWindowRectClient.left,
+                magWindowRectClient.bottom - magWindowRectClient.top, 0);
+        }
+
+        // If selection is complete, update the window region after resize
+        if (selectionState == SELECTION_COMPLETE)
+        {
+            // Recreate the region after window size changes
+            RECT windowRect, clientRect;
+            GetWindowRect(hWnd, &windowRect);
+            GetClientRect(hWnd, &clientRect);
+
+            // Convert client rect to window coordinates
+            POINT clientTopLeft = { 0, 0 };
+            ClientToScreen(hWnd, &clientTopLeft);
+
+            int clientLeft = clientTopLeft.x - windowRect.left;
+            int clientTop = clientTopLeft.y - windowRect.top;
+            int clientRight = clientLeft + (clientRect.right - clientRect.left);
+            int clientBottom = clientTop + (clientRect.bottom - clientRect.top);
+
+            // Create the frame region (entire window)
+            HRGN frameRgn = CreateRectRgn(0, 0,
+                windowRect.right - windowRect.left,
+                windowRect.bottom - windowRect.top);
+
+            // Create the client area region to subtract
+            HRGN clientRgn = CreateRectRgn(clientLeft, clientTop, clientRight, clientBottom);
+
+            // Subtract the client area from the frame region
+            CombineRgn(frameRgn, frameRgn, clientRgn, RGN_DIFF);
+
+            // Apply the region to the window
+            SetWindowRgn(hWnd, frameRgn, TRUE);
+
+            // Clean up the client region (frameRgn is now owned by the window)
+            DeleteObject(clientRgn);
         }
         break;
 
@@ -209,7 +219,8 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             // Resize the control to fill the window.
             SetWindowPos(hwndMag, NULL,
                 magWindowRectClient.left, magWindowRectClient.top,
-                magWindowRectClient.right, magWindowRectClient.bottom, 0);
+                magWindowRectClient.right - magWindowRectClient.left,
+                magWindowRectClient.bottom - magWindowRectClient.top, 0);
         }
         break;
 
@@ -279,7 +290,8 @@ BOOL SetupMagnifier(HINSTANCE hinst)
     hwndMag = CreateWindow(WC_MAGNIFIER, TEXT("MagnifierWindow"),
         WS_CHILD | MS_SHOWMAGNIFIEDCURSOR | WS_VISIBLE,
         magWindowRectClient.left, magWindowRectClient.top,
-        magWindowRectClient.right, magWindowRectClient.bottom,
+        magWindowRectClient.right - magWindowRectClient.left,
+        magWindowRectClient.bottom - magWindowRectClient.top,
         hwndHost, NULL, hinst, NULL);
     if (!hwndMag)
     {
@@ -361,13 +373,42 @@ void ResizeToSelectedRectangle()
     // Remove the maximized state and set normal window styles
     SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
 
-    // Add WS_EX_TRANSPARENT to make the window click-through
-    SetWindowLong(hwndHost, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT);
-
     // Resize and reposition the window
     SetWindowPos(hwndHost, HWND_TOPMOST,
         selectedRect.left, selectedRect.top, width, height,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+
+    // Create a region that includes only the window frame, excluding the client area
+    // This allows clicks on the frame (for resizing, close button) but makes the content click-through
+    RECT windowRect, clientRect;
+    GetWindowRect(hwndHost, &windowRect);
+    GetClientRect(hwndHost, &clientRect);
+
+    // Convert client rect to window coordinates
+    POINT clientTopLeft = { 0, 0 };
+    ClientToScreen(hwndHost, &clientTopLeft);
+
+    int clientLeft = clientTopLeft.x - windowRect.left;
+    int clientTop = clientTopLeft.y - windowRect.top;
+    int clientRight = clientLeft + (clientRect.right - clientRect.left);
+    int clientBottom = clientTop + (clientRect.bottom - clientRect.top);
+
+    // Create the frame region (entire window)
+    HRGN frameRgn = CreateRectRgn(0, 0,
+        windowRect.right - windowRect.left,
+        windowRect.bottom - windowRect.top);
+
+    // Create the client area region to subtract
+    HRGN clientRgn = CreateRectRgn(clientLeft, clientTop, clientRight, clientBottom);
+
+    // Subtract the client area from the frame region
+    CombineRgn(frameRgn, frameRgn, clientRgn, RGN_DIFF);
+
+    // Apply the region to the window
+    SetWindowRgn(hwndHost, frameRgn, TRUE);
+
+    // Clean up the client region (frameRgn is now owned by the window)
+    DeleteObject(clientRgn);
 }
 
 //
