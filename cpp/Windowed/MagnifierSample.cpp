@@ -167,6 +167,10 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     _In_ LPSTR     /*lpCmdLine*/,
     _In_ int       nCmdShow)
 {
+    // Intentionally ignore nCmdShow as we need to start fullscreen 
+    // to capture initial points to define rectangle. 
+    (void)nCmdShow; 
+
     if (FALSE == MagInitialize())
     {
         return 0;
@@ -362,7 +366,6 @@ void LoadRectangle(int slot)
 //
 void CycleToNextSavedRectangle()
 {
-    int startSlot = currentCycleSlot;
     int attempts = 0;
 
     // Look for the next valid saved rectangle (slots 1-9, skip slot 0)
@@ -664,7 +667,7 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
         // Rectangle save/load 1-9
         else if (wParam > '0' && wParam <= '9')
         {
-            int slot = wParam - '0';
+            int slot = static_cast<int>(wParam) - '0';
 
             if (ctrlPressed && selectionState == SELECTION_COMPLETE)
             {
