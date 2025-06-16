@@ -972,13 +972,39 @@ void ApplyColorEffects()
 
         // Update window title to show current settings with current key bindings
         TCHAR titleText[256];
-        float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
 
-        _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+1-9=Save)"),
-            inversionEnabled ? TEXT("Inverted ") : TEXT(""),
-            grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
-            grayLevels[grayLevel] * 100.0f,
-            shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
+        if (isPinned)
+        {
+            // When pinned, show unpin instructions using configured hotkey
+            TCHAR hotkeyText[64] = TEXT("");
+
+            // Build the hotkey string based on configured modifiers
+            if (shortcuts.globalHotkeyModifiers & MOD_CONTROL)
+                _tcscat_s(hotkeyText, 64, TEXT("Ctrl+"));
+            if (shortcuts.globalHotkeyModifiers & MOD_SHIFT)
+                _tcscat_s(hotkeyText, 64, TEXT("Shift+"));
+            if (shortcuts.globalHotkeyModifiers & MOD_ALT)
+                _tcscat_s(hotkeyText, 64, TEXT("Alt+"));
+            if (shortcuts.globalHotkeyModifiers & MOD_WIN)
+                _tcscat_s(hotkeyText, 64, TEXT("Win+"));
+
+            // Add the key
+            TCHAR keyText[8];
+            _stprintf_s(keyText, 8, TEXT("%c"), shortcuts.globalHotkeyKey);
+            _tcscat_s(hotkeyText, 64, keyText);
+
+            _stprintf_s(titleText, 256, TEXT("Magnifier - %s to unpin window"), hotkeyText);
+        }
+        else
+        {
+            // When not pinned, show normal color/inversion status
+            float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
+            _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+1-9=Save)"),
+                inversionEnabled ? TEXT("Inverted ") : TEXT(""),
+                grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
+                grayLevels[grayLevel] * 100.0f,
+                shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
+        }
 
         SetWindowText(hwndHost, titleText);
     }
