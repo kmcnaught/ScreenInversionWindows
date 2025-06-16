@@ -2,39 +2,22 @@
 *
 * File: MagnifierSample.cpp
 *
-* Description: Implements a simple control that magnifies the screen, using the 
-* Magnification API.
+* Description: Implements a simple control that magnifies the screen, using the
+* Magnification API. Modified to allow rectangle selection and color inversion.
 *
-* The magnification window is quarter-screen by default but can be resized.
-* To make it full-screen, use the Maximize button or double-click the caption
-* bar. To return to partial-screen mode, click on the application icon in the 
-* taskbar and press ESC. 
+* Modified behavior:
+* - Starts maximized without color effects
+* - User clicks two points to define a rectangle
+* - Window resizes to selected rectangle size
+* - Color inversion is applied to the resized window
 *
-* In full-screen mode, all keystrokes and mouse clicks are passed through to the
-* underlying focused application. In partial-screen mode, the window can receive the 
-* focus. 
-*
-* Multiple monitors are not supported.
-*
-* 
-* Requirements: To compile, link to Magnification.lib. The sample must be run with 
+* Requirements: To compile, link to Magnification.lib. The sample must be run with
 * elevated privileges.
 *
-* The sample is not designed for multimonitor setups.
-* 
 *  This file is part of the Microsoft WinfFX SDK Code Samples.
-* 
+*
 *  Copyright (C) Microsoft Corporation.  All rights reserved.
-* 
-* This source code is intended only as a supplement to Microsoft
-* Development Tools and/or on-line documentation.  See these other
-* materials for detailed information regarding Microsoft code samples.
-* 
-* THIS CODE AND INFORMATION ARE PROVIDED AS IS WITHOUT WARRANTY OF ANY
-* KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-* IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
-* PARTICULAR PURPOSE.
-* 
+*
 *************************************************************************************************/
 
 // Ensure that the following definition is in effect before winuser.h is included.
@@ -43,6 +26,7 @@
 #endif
 
 #include <windows.h>
+#include <windowsx.h>
 #include <wincodec.h>
 #include <magnification.h>
 
@@ -50,16 +34,30 @@
 #define MAGFACTOR  1.0f
 #define RESTOREDWINDOWSTYLES WS_SIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN | WS_CAPTION | WS_MAXIMIZEBOX
 
+// Rectangle selection states
+enum SelectionState {
+    SELECTION_NONE,
+    SELECTION_FIRST_POINT,
+    SELECTION_COMPLETE
+};
+
 // Global variables and strings.
 HINSTANCE           hInst;
-const TCHAR         WindowClassName[]= TEXT("MagnifierWindow");
-const TCHAR         WindowTitle[]= TEXT("Screen Magnifier Sample");
+const TCHAR         WindowClassName[] = TEXT("MagnifierWindow");
+const TCHAR         WindowTitle[] = TEXT("Screen Magnifier - Click two points to select area");
 const UINT          timerInterval = 16; // close to the refresh rate @60hz
 HWND                hwndMag;
 HWND                hwndHost;
 RECT                magWindowRectClient;
 RECT                magWindowRectWindow;
 RECT                hostWindowRect;
+
+// Rectangle selection variables
+SelectionState      selectionState = SELECTION_NONE;
+POINT               firstPoint;
+POINT               secondPoint;
+RECT                selectedRect;
+BOOL                colorInversionApplied = FALSE;
 
 // Forward declarations.
 ATOM                RegisterHostWindowClass(HINSTANCE hInstance);
@@ -68,6 +66,9 @@ LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 void CALLBACK       UpdateMagWindow(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 void                GoFullScreen();
 void                GoPartialScreen();
+void                HandleRectangleSelection(POINT clickPoint);
+void                ResizeToSelectedRectangle();
+void                ApplyColorInversion();
 BOOL                isFullScreen = FALSE;
 
 //
@@ -76,10 +77,12 @@ BOOL                isFullScreen = FALSE;
 // PURPOSE: Entry point for the application.
 //
 int APIENTRY WinMain(_In_ HINSTANCE hInstance,
-                     _In_opt_ HINSTANCE /*hPrevInstance*/,
-                     _In_ LPSTR     /*lpCmdLine*/,
-                     _In_ int       nCmdShow)
+    _In_opt_ HINSTANCE /*hPrevInstance*/,
+    _In_ LPSTR     /*lpCmdLine*/,
+    _In_ int       nCmdShow)
 {
+    nCmdShow = 0;//FIXME: just to ignroe warning error
+
     if (FALSE == MagInitialize())
     {
         return 0;
@@ -89,7 +92,8 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
         return 0;
     }
 
-    ShowWindow(hwndHost, nCmdShow);
+    // Show maximized instead of using nCmdShow
+    ShowWindow(hwndHost, SW_MAXIMIZE);
     UpdateWindow(hwndHost);
 
     // Create a timer to update the control.
@@ -106,7 +110,7 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     // Shut down.
     KillTimer(NULL, timerId);
     MagUninitialize();
-    return (int) msg.wParam;
+    return (int)msg.wParam;
 }
 
 //
@@ -116,14 +120,36 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
 //
 LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    switch (message) 
+    switch (message)
     {
+    case WM_LBUTTONDOWN:
+    {
+        if (selectionState != SELECTION_COMPLETE)
+        {
+            POINT clickPoint;
+            clickPoint.x = GET_X_LPARAM(lParam);
+            clickPoint.y = GET_Y_LPARAM(lParam);
+
+            // Convert to screen coordinates
+            ClientToScreen(hWnd, &clickPoint);
+
+            HandleRectangleSelection(clickPoint);
+        }
+    }
+    break;
+
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)
         {
-            if (isFullScreen) 
+            if (isFullScreen)
             {
                 GoPartialScreen();
+            }
+            else if (selectionState != SELECTION_NONE)
+            {
+                // Reset selection
+                selectionState = SELECTION_NONE;
+                SetWindowText(hwndHost, TEXT("Screen Magnifier - Click two points to select area"));
             }
         }
         break;
@@ -144,29 +170,32 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
         break;
 
     case WM_SIZE:
-        if ( hwndMag != NULL )
+        if (hwndMag != NULL)
         {
             GetClientRect(hWnd, &magWindowRectClient);
             // Resize the control to fill the window.
-            SetWindowPos(hwndMag, NULL, 
-                magWindowRectClient.left, magWindowRectClient.top, magWindowRectClient.right, magWindowRectClient.bottom, 0);
+            SetWindowPos(hwndMag, NULL,
+                magWindowRectClient.left, magWindowRectClient.top,
+                magWindowRectClient.right, magWindowRectClient.bottom, 0);
         }
         break;
-    case WM_WINDOWPOSCHANGED: 
+
+    case WM_WINDOWPOSCHANGED:
         if (hwndMag != NULL)
         {
             GetWindowRect(hWnd, &magWindowRectWindow);
             GetClientRect(hWnd, &magWindowRectClient);
             // Resize the control to fill the window.
             SetWindowPos(hwndMag, NULL,
-                magWindowRectClient.left, magWindowRectClient.top, magWindowRectClient.right, magWindowRectClient.bottom, 0);
+                magWindowRectClient.left, magWindowRectClient.top,
+                magWindowRectClient.right, magWindowRectClient.bottom, 0);
         }
         break;
 
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
-    return 0;  
+    return 0;
 }
 
 //
@@ -178,13 +207,13 @@ ATOM RegisterHostWindowClass(HINSTANCE hInstance)
 {
     WNDCLASSEX wcex = {};
 
-    wcex.cbSize = sizeof(WNDCLASSEX); 
-    wcex.style          = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc    = HostWndProc;
-    wcex.hInstance      = hInstance;
-    wcex.hCursor        = LoadCursor(NULL, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(1 + COLOR_BTNFACE);
-    wcex.lpszClassName  = WindowClassName;
+    wcex.cbSize = sizeof(WNDCLASSEX);
+    wcex.style = CS_HREDRAW | CS_VREDRAW;
+    wcex.lpfnWndProc = HostWndProc;
+    wcex.hInstance = hInstance;
+    wcex.hCursor = LoadCursor(NULL, IDC_CROSS); // Changed to cross cursor for selection
+    wcex.hbrBackground = (HBRUSH)(1 + COLOR_BTNFACE);
+    wcex.lpszClassName = WindowClassName;
 
     return RegisterClassEx(&wcex);
 }
@@ -196,43 +225,47 @@ ATOM RegisterHostWindowClass(HINSTANCE hInstance)
 //
 BOOL SetupMagnifier(HINSTANCE hinst)
 {
-    // Set bounds of host window according to screen size.
-
+    // Set bounds of host window to full screen initially
     int width = GetSystemMetrics(SM_CXSCREEN);
     int height = GetSystemMetrics(SM_CYSCREEN);
 
-    hostWindowRect.top = height / 4;
-    hostWindowRect.bottom = height / 2;
-    hostWindowRect.left = width / 4;
-    hostWindowRect.right = width / 2;
+    hostWindowRect.top = 0;
+    hostWindowRect.bottom = height;
+    hostWindowRect.left = 0;
+    hostWindowRect.right = width;
 
     // Create the host window.
     RegisterHostWindowClass(hinst);
-    hwndHost = CreateWindowEx(WS_EX_TOPMOST | WS_EX_LAYERED, 
-        WindowClassName, WindowTitle, 
+    hwndHost = CreateWindowEx(WS_EX_TOPMOST | WS_EX_LAYERED,
+        WindowClassName, WindowTitle,
         RESTOREDWINDOWSTYLES,
         hostWindowRect.left, hostWindowRect.top,
         hostWindowRect.right, hostWindowRect.bottom,
-        NULL, NULL, hInst, NULL);
+        NULL, NULL, hinst, NULL);
     if (!hwndHost)
     {
         return FALSE;
     }
+
+    // Store instance handle
+    hInst = hinst;
 
     // Make the window opaque.
     SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
 
     // Create a magnifier control that fills the client area.
     GetClientRect(hwndHost, &magWindowRectClient);
-    hwndMag = CreateWindow(WC_MAGNIFIER, TEXT("MagnifierWindow"), 
+    hwndMag = CreateWindow(WC_MAGNIFIER, TEXT("MagnifierWindow"),
         WS_CHILD | MS_SHOWMAGNIFIEDCURSOR | WS_VISIBLE,
-        magWindowRectClient.left, magWindowRectClient.top, magWindowRectClient.right, magWindowRectClient.bottom, hwndHost, NULL, hInst, NULL );
+        magWindowRectClient.left, magWindowRectClient.top,
+        magWindowRectClient.right, magWindowRectClient.bottom,
+        hwndHost, NULL, hinst, NULL);
     if (!hwndMag)
     {
         return FALSE;
     }
 
-    // Set the magnification factor.
+    // Set the magnification factor (no magnification, just display).
     MAGTRANSFORM matrix;
     memset(&matrix, 0, sizeof(matrix));
     matrix.v[0][0] = MAGFACTOR;
@@ -241,24 +274,101 @@ BOOL SetupMagnifier(HINSTANCE hinst)
 
     BOOL ret = MagSetWindowTransform(hwndMag, &matrix);
 
-    float whiteAmount = 0.6f; // 1.0 = full whites, reduce to take edge off bright whites
-    if (ret)
-    {
-        MAGCOLOREFFECT magEffectInvert = 
-        {{ // MagEffectInvert [RGB, alpha, colour translation]
-            { -1.0f,  0.0f,  0.0f,  0.0f,  0.0f },
-            {  0.0f, -1.0f,  0.0f,  0.0f,  0.0f },
-            {  0.0f,  0.0f, -1.0f,  0.0f,  0.0f },
-            {  0.0f,  0.0f,  0.0f,  1.0f,  0.0f },
-            {  whiteAmount, whiteAmount, whiteAmount,  0.0f,  1.0f }
-        }};
+    // Do NOT apply color inversion initially - wait for rectangle selection
 
-        ret = MagSetColorEffect(hwndMag,&magEffectInvert);
-    }
-
-    return ret;  
+    return ret;
 }
 
+//
+// FUNCTION: HandleRectangleSelection()
+//
+// PURPOSE: Handles the two-point rectangle selection process.
+//
+void HandleRectangleSelection(POINT clickPoint)
+{
+    switch (selectionState)
+    {
+    case SELECTION_NONE:
+        firstPoint = clickPoint;
+        selectionState = SELECTION_FIRST_POINT;
+        SetWindowText(hwndHost, TEXT("Screen Magnifier - Click second point"));
+        break;
+
+    case SELECTION_FIRST_POINT:
+        secondPoint = clickPoint;
+        selectionState = SELECTION_COMPLETE;
+
+        // Calculate the selected rectangle
+        selectedRect.left = min(firstPoint.x, secondPoint.x);
+        selectedRect.top = min(firstPoint.y, secondPoint.y);
+        selectedRect.right = max(firstPoint.x, secondPoint.x);
+        selectedRect.bottom = max(firstPoint.y, secondPoint.y);
+
+        // Ensure minimum size
+        if ((selectedRect.right - selectedRect.left) < 100)
+            selectedRect.right = selectedRect.left + 100;
+        if ((selectedRect.bottom - selectedRect.top) < 100)
+            selectedRect.bottom = selectedRect.top + 100;
+
+        ResizeToSelectedRectangle();
+        ApplyColorInversion();
+
+        SetWindowText(hwndHost, TEXT("Screen Magnifier - Area Selected (ESC to reset)"));
+        break;
+
+    case SELECTION_COMPLETE:
+        // Already complete, ignore additional clicks
+        break;
+    }
+}
+
+//
+// FUNCTION: ResizeToSelectedRectangle()
+//
+// PURPOSE: Resizes the application window to match the selected rectangle.
+//
+void ResizeToSelectedRectangle()
+{
+    if (selectionState != SELECTION_COMPLETE)
+        return;
+
+    int width = selectedRect.right - selectedRect.left;
+    int height = selectedRect.bottom - selectedRect.top;
+
+    // Update host window rect for future reference
+    hostWindowRect = selectedRect;
+
+    // Resize and reposition the window
+    SetWindowPos(hwndHost, HWND_TOPMOST,
+        selectedRect.left, selectedRect.top, width, height,
+        SWP_SHOWWINDOW | SWP_NOACTIVATE);
+}
+
+//
+// FUNCTION: ApplyColorInversion()
+//
+// PURPOSE: Applies color inversion effect to the magnifier.
+//
+void ApplyColorInversion()
+{
+    if (colorInversionApplied)
+        return;
+
+    MAGCOLOREFFECT magEffectInvert =
+    { { // MagEffectInvert [RGB, alpha, colour translation]
+        { -1.0f,  0.0f,  0.0f,  0.0f,  0.0f },
+        {  0.0f, -1.0f,  0.0f,  0.0f,  0.0f },
+        {  0.0f,  0.0f, -1.0f,  0.0f,  0.0f },
+        {  0.0f,  0.0f,  0.0f,  1.0f,  0.0f },
+        {  1.0f,  1.0f,  1.0f,  0.0f,  1.0f }
+    } };
+
+    BOOL ret = MagSetColorEffect(hwndMag, &magEffectInvert);
+    if (ret)
+    {
+        colorInversionApplied = TRUE;
+    }
+}
 
 //
 // FUNCTION: UpdateMagWindow()
@@ -267,39 +377,47 @@ BOOL SetupMagnifier(HINSTANCE hinst)
 //
 void CALLBACK UpdateMagWindow(HWND /*hwnd*/, UINT /*uMsg*/, UINT_PTR /*idEvent*/, DWORD /*dwTime*/)
 {
-
-    // Get styles for adjustments
-    LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
-    LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);   
-    LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
-
-    // Calculate the correct source rectangle relative to the screen
     RECT sourceRect;
 
-    int fudge = 4; // ?? required to make things line up. - or double the frame??
-    
-    sourceRect.left = magWindowRectWindow.left + magWindowRectClient.left + borderWidth + fudge;
-    sourceRect.top = magWindowRectWindow.top + magWindowRectClient.top + titleBarHeight + borderHeight + fudge;
+    if (selectionState == SELECTION_COMPLETE)
+    {
+        // Use the selected rectangle as the source
+        sourceRect = selectedRect;
+    }
+    else
+    {
+        // Before selection is complete, show the current window area
+        GetWindowRect(hwndHost, &magWindowRectWindow);
+        GetClientRect(hwndHost, &magWindowRectClient);
 
-    // Calculate the width and height based on client area size
-    int width = (int)((magWindowRectWindow.right - magWindowRectWindow.left) / MAGFACTOR);
-    int height = (int)((magWindowRectWindow.bottom - magWindowRectWindow.top) / MAGFACTOR);
+        // Get styles for adjustments
+        LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
+        LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
+        LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
 
-    // Adjust the source rectangle bounds
-    sourceRect.right = sourceRect.left + width;
-    sourceRect.bottom = sourceRect.top + height;
+        int fudge = 4;
+
+        sourceRect.left = magWindowRectWindow.left + magWindowRectClient.left + borderWidth + fudge;
+        sourceRect.top = magWindowRectWindow.top + magWindowRectClient.top + titleBarHeight + borderHeight + fudge;
+
+        // Calculate the width and height based on client area size
+        int width = (int)((magWindowRectWindow.right - magWindowRectWindow.left) / MAGFACTOR);
+        int height = (int)((magWindowRectWindow.bottom - magWindowRectWindow.top) / MAGFACTOR);
+
+        sourceRect.right = sourceRect.left + width;
+        sourceRect.bottom = sourceRect.top + height;
+    }
 
     // Set the source rectangle for the magnifier control.
     MagSetWindowSource(hwndMag, sourceRect);
 
     // Reclaim topmost status, to prevent unmagnified menus from remaining in view. 
-    SetWindowPos(hwndHost, HWND_TOPMOST, 0, 0, 0, 0, 
-        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE );
+    SetWindowPos(hwndHost, HWND_TOPMOST, 0, 0, 0, 0,
+        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 
     // Force redraw.
     InvalidateRect(hwndMag, NULL, TRUE);
 }
-
 
 //
 // FUNCTION: GoFullScreen()
@@ -315,7 +433,7 @@ void GoFullScreen()
     SetWindowLong(hwndHost, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT);
 
     // Give the window a system menu so it can be closed on the taskbar.
-    SetWindowLong(hwndHost, GWL_STYLE,  WS_CAPTION | WS_SYSMENU);
+    SetWindowLong(hwndHost, GWL_STYLE, WS_CAPTION | WS_SYSMENU);
 
     // Calculate the span of the display area.
     HDC hDC = GetDC(NULL);
@@ -334,7 +452,7 @@ void GoFullScreen()
     xSpan += 2 * xBorder;
     ySpan += 2 * yBorder + yCaption;
 
-    SetWindowPos(hwndHost, HWND_TOPMOST, xOrigin, yOrigin, xSpan, ySpan, 
+    SetWindowPos(hwndHost, HWND_TOPMOST, xOrigin, yOrigin, xSpan, ySpan,
         SWP_SHOWWINDOW | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
@@ -349,7 +467,8 @@ void GoPartialScreen()
 
     SetWindowLong(hwndHost, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED);
     SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
-    SetWindowPos(hwndHost, HWND_TOPMOST, 
-        hostWindowRect.left, hostWindowRect.top, hostWindowRect.right, hostWindowRect.bottom, 
+    SetWindowPos(hwndHost, HWND_TOPMOST,
+        hostWindowRect.left, hostWindowRect.top,
+        hostWindowRect.right, hostWindowRect.bottom,
         SWP_SHOWWINDOW | SWP_NOZORDER | SWP_NOACTIVATE);
 }
