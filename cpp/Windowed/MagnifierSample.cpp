@@ -77,16 +77,25 @@ struct ShortcutConfig {
 
 const char* ShortcutConfig::CONFIG_FILE = "shortcuts.txt";
 
-// Saved rectangles structure
+// Saved rectangles structure with color settings
 struct SavedRectangles {
     RECT rects[NUM_SAVED_RECTS];
     bool isValid[NUM_SAVED_RECTS];
+
+    // Color settings for each saved rectangle
+    bool inversionSettings[NUM_SAVED_RECTS];
+    bool grayscaleSettings[NUM_SAVED_RECTS];
+    int grayLevelSettings[NUM_SAVED_RECTS];
+
     static const char* RECTS_FILE;
 
     SavedRectangles() {
         for (int i = 0; i < NUM_SAVED_RECTS; i++) {
             isValid[i] = false;
             memset(&rects[i], 0, sizeof(RECT));
+            inversionSettings[i] = false;
+            grayscaleSettings[i] = false;
+            grayLevelSettings[i] = 0;
         }
     }
 };
@@ -225,33 +234,50 @@ void LoadSavedRectangles()
         if (equalPos != std::string::npos)
         {
             std::string slotStr = line.substr(0, equalPos);
-            std::string rectStr = line.substr(equalPos + 1);
+            std::string dataStr = line.substr(equalPos + 1);
 
             // Trim whitespace
             slotStr.erase(0, slotStr.find_first_not_of(" \t"));
             slotStr.erase(slotStr.find_last_not_of(" \t") + 1);
-            rectStr.erase(0, rectStr.find_first_not_of(" \t"));
-            rectStr.erase(rectStr.find_last_not_of(" \t") + 1);
+            dataStr.erase(0, dataStr.find_first_not_of(" \t"));
+            dataStr.erase(dataStr.find_last_not_of(" \t") + 1);
 
             int slot = atoi(slotStr.c_str());
             if (slot >= 0 && slot < NUM_SAVED_RECTS)
             {
-                // Parse rectangle coordinates: left,top,right,bottom
-                std::stringstream ss(rectStr);
-                std::string coord;
-                std::vector<int> coords;
+                // Parse data: left,top,right,bottom,invert,grayscale,graylevel
+                std::stringstream ss(dataStr);
+                std::string item;
+                std::vector<std::string> items;
 
-                while (std::getline(ss, coord, ','))
+                while (std::getline(ss, item, ','))
                 {
-                    coords.push_back(atoi(coord.c_str()));
+                    items.push_back(item);
                 }
 
-                if (coords.size() == 4)
+                if (items.size() >= 4)
                 {
-                    savedRects.rects[slot].left = coords[0];
-                    savedRects.rects[slot].top = coords[1];
-                    savedRects.rects[slot].right = coords[2];
-                    savedRects.rects[slot].bottom = coords[3];
+                    // Rectangle coordinates
+                    savedRects.rects[slot].left = atoi(items[0].c_str());
+                    savedRects.rects[slot].top = atoi(items[1].c_str());
+                    savedRects.rects[slot].right = atoi(items[2].c_str());
+                    savedRects.rects[slot].bottom = atoi(items[3].c_str());
+
+                    // Color settings (with backwards compatibility)
+                    if (items.size() >= 7)
+                    {
+                        savedRects.inversionSettings[slot] = (atoi(items[4].c_str()) != 0);
+                        savedRects.grayscaleSettings[slot] = (atoi(items[5].c_str()) != 0);
+                        savedRects.grayLevelSettings[slot] = atoi(items[6].c_str());
+                    }
+                    else
+                    {
+                        // Default color settings for old format
+                        savedRects.inversionSettings[slot] = true;
+                        savedRects.grayscaleSettings[slot] = false;
+                        savedRects.grayLevelSettings[slot] = 0;
+                    }
+
                     savedRects.isValid[slot] = true;
                 }
             }
@@ -273,9 +299,12 @@ void SaveSavedRectangles()
     if (!rectsFile.is_open())
         return;
 
-    rectsFile << "# Saved Rectangle Configurations\n";
-    rectsFile << "# Format: SlotNumber=Left,Top,Right,Bottom\n";
-    rectsFile << "# Slots 1-9 available. Use 0 to cycle, 1-9 to load, Ctrl+1-9 to save.\n\n";
+    rectsFile << "# Saved Rectangle Configurations with Color Settings\n";
+    rectsFile << "# Format: SlotNumber=Left,Top,Right,Bottom,Invert,Grayscale,GrayLevel\n";
+    rectsFile << "# Slots 1-9 available. Use 0 to cycle, 1-9 to load, Ctrl+1-9 to save.\n";
+    rectsFile << "# Invert: 1=enabled, 0=disabled\n";
+    rectsFile << "# Grayscale: 1=enabled, 0=disabled\n";
+    rectsFile << "# GrayLevel: 0=100%, 1=80%, 2=60%, 3=40%\n\n";
 
     for (int i = 0; i < NUM_SAVED_RECTS; i++)
     {
@@ -285,7 +314,10 @@ void SaveSavedRectangles()
                 << savedRects.rects[i].left << ","
                 << savedRects.rects[i].top << ","
                 << savedRects.rects[i].right << ","
-                << savedRects.rects[i].bottom << "\n";
+                << savedRects.rects[i].bottom << ","
+                << (savedRects.inversionSettings[i] ? 1 : 0) << ","
+                << (savedRects.grayscaleSettings[i] ? 1 : 0) << ","
+                << savedRects.grayLevelSettings[i] << "\n";
         }
     }
 
@@ -314,6 +346,11 @@ void LoadRectangle(int slot)
         return;
     }
 
+    // Restore color settings first
+    inversionEnabled = savedRects.inversionSettings[slot];
+    grayscaleEnabled = savedRects.grayscaleSettings[slot];
+    grayLevel = savedRects.grayLevelSettings[slot];
+
     ApplyLoadedRectangle(savedRects.rects[slot]);
 }
 
@@ -338,6 +375,11 @@ void CycleToNextSavedRectangle()
 
     // If we found a valid slot, load it
     if (savedRects.isValid[currentCycleSlot]) {
+        // Restore color settings first
+        inversionEnabled = savedRects.inversionSettings[currentCycleSlot];
+        grayscaleEnabled = savedRects.grayscaleSettings[currentCycleSlot];
+        grayLevel = savedRects.grayLevelSettings[currentCycleSlot];
+
         ApplyLoadedRectangle(savedRects.rects[currentCycleSlot]);
 
         // Show which slot was loaded
@@ -368,7 +410,7 @@ void CycleToNextSavedRectangle()
 //
 // FUNCTION: SaveCurrentRectangle()
 //
-// PURPOSE: Saves the current rectangle to the specified slot (slots 1-9 only).
+// PURPOSE: Saves the current rectangle and color settings to the specified slot (slots 1-9 only).
 //
 void SaveCurrentRectangle(int slot)
 {
@@ -380,7 +422,14 @@ void SaveCurrentRectangle(int slot)
     RECT currentRect;
     GetWindowRect(hwndHost, &currentRect);
 
+    // Save rectangle
     savedRects.rects[slot] = currentRect;
+
+    // Save current color settings
+    savedRects.inversionSettings[slot] = inversionEnabled;
+    savedRects.grayscaleSettings[slot] = grayscaleEnabled;
+    savedRects.grayLevelSettings[slot] = grayLevel;
+
     savedRects.isValid[slot] = true;
 
     SaveSavedRectangles();
