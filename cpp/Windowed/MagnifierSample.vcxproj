@@ -20,7 +20,7 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{B6D10B95-F91C-4286-8751-35FF71CBD30E}</ProjectGuid>
-    <ProjectName>ScreenInversionWindow</ProjectName>
+    <ProjectName>ScreenFilterWindow</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
