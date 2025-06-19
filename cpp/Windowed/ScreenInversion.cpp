@@ -104,8 +104,8 @@ const char* SavedRectangles::RECTS_FILE = "saved_rects.txt";
 
 // Global variables and strings.
 HINSTANCE           hInst;
-const TCHAR         WindowClassName[] = TEXT("MagnifierWindow");
-const TCHAR         WindowTitle[] = TEXT("Screen Magnifier - Click two points to select area (0=cycle saved, 1-9=load saved)");
+const TCHAR         WindowClassName[] = TEXT("ScreenFilterWindow");
+const TCHAR         WindowTitle[] = TEXT("Screen Filter - Click two points to select area (0=cycle saved, 1-9=load saved)");
 const UINT          timerInterval = 16; // close to the refresh rate @60hz
 HWND                hwndMag;
 HWND                hwndHost;
@@ -136,7 +136,7 @@ int                 currentCycleSlot = 1; // Start cycling from slot 1
 
 // Forward declarations.
 ATOM                RegisterHostWindowClass(HINSTANCE hInstance);
-BOOL                SetupMagnifier(HINSTANCE hinst);
+BOOL                SetupScreenFilter(HINSTANCE hinst);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 void CALLBACK       UpdateMagWindow(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 void                GoFullScreen();
@@ -154,7 +154,6 @@ void                LoadRectangle(int slot);
 void                SaveCurrentRectangle(int slot);
 void                CycleToNextSavedRectangle();
 void                ApplyLoadedRectangle(const RECT& rect);
-BOOL                IsWindows10OrGreater();
 BOOL                isFullScreen = FALSE;
 
 //
@@ -180,7 +179,7 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     LoadShortcutConfig();
     LoadSavedRectangles();
 
-    if (FALSE == SetupMagnifier(hInstance))
+    if (FALSE == SetupScreenFilter(hInstance))
     {
         return 0;
     }
@@ -340,7 +339,7 @@ void LoadRectangle(int slot)
     {
         // Show a brief message that the slot is empty
         TCHAR message[256];
-        _stprintf_s(message, 256, TEXT("Screen Magnifier - Slot %d is empty"), slot);
+        _stprintf_s(message, 256, TEXT("Screen Filter - Slot %d is empty"), slot);
         SetWindowText(hwndHost, message);
 
         // Reset title after 2 seconds
@@ -388,7 +387,7 @@ void CycleToNextSavedRectangle()
 
         // Show which slot was loaded
         TCHAR message[256];
-        _stprintf_s(message, 256, TEXT("Screen Magnifier - Loaded Slot %d (Press 0 to cycle)"), currentCycleSlot);
+        _stprintf_s(message, 256, TEXT("Screen Filter - Loaded Slot %d (Press 0 to cycle)"), currentCycleSlot);
         SetWindowText(hwndHost, message);
 
         // Reset title after 2 seconds
@@ -400,7 +399,7 @@ void CycleToNextSavedRectangle()
     else {
         // No saved rectangles found
         TCHAR message[256];
-        _stprintf_s(message, 256, TEXT("Screen Magnifier - No saved rectangles found (Use Ctrl+1-9 to save)"));
+        _stprintf_s(message, 256, TEXT("Screen Filter - No saved rectangles found (Use Ctrl+1-9 to save)"));
         SetWindowText(hwndHost, message);
 
         // Reset title after 2 seconds
@@ -440,7 +439,7 @@ void SaveCurrentRectangle(int slot)
 
     // Show confirmation message
     TCHAR message[256];
-    _stprintf_s(message, 256, TEXT("Screen Magnifier - Rectangle saved to slot %d"), slot);
+    _stprintf_s(message, 256, TEXT("Screen Filter - Rectangle saved to slot %d"), slot);
     SetWindowText(hwndHost, message);
 
     // Reset title after 2 seconds
@@ -466,7 +465,7 @@ void ApplyLoadedRectangle(const RECT& rect)
     // Update title to show that a rectangle was loaded
     TCHAR instructionText[256];
     _stprintf_s(instructionText, 256,
-        TEXT("Screen Magnifier - Area Loaded (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+1-9=Save)"),
+        TEXT("Screen Filter - Area Loaded (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+1-9=Save)"),
         shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
     SetWindowText(hwndHost, instructionText);
 }
@@ -557,7 +556,7 @@ void SaveDefaultShortcutConfig()
     if (!configFile.is_open())
         return;
 
-    configFile << "# Magnifier Shortcut Configuration\n";
+    configFile << "# Screen Filter Shortcut Configuration\n";
     configFile << "# Edit these values to customize keyboard shortcuts\n";
     configFile << "# Use single characters for keys (case sensitive)\n\n";
 
@@ -604,7 +603,7 @@ void ApplyDarkModeToWindow(HWND hwnd)
 //
 // FUNCTION: HostWndProc()
 //
-// PURPOSE: Window procedure for the window that hosts the magnifier control.
+// PURPOSE: Window procedure for the window that hosts the screen filter control.
 //
 LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -817,7 +816,7 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 //
 //  FUNCTION: RegisterHostWindowClass()
 //
-//  PURPOSE: Registers the window class for the window that contains the magnification control.
+//  PURPOSE: Registers the window class for the window that contains the screen filter control.
 //
 ATOM RegisterHostWindowClass(HINSTANCE hInstance)
 {
@@ -836,11 +835,11 @@ ATOM RegisterHostWindowClass(HINSTANCE hInstance)
 }
 
 //
-// FUNCTION: SetupMagnifier
+// FUNCTION: SetupScreenFilter
 //
-// PURPOSE: Creates the windows and initializes magnification.
+// PURPOSE: Creates the windows and initializes screen filter.
 //
-BOOL SetupMagnifier(HINSTANCE hinst)
+BOOL SetupScreenFilter(HINSTANCE hinst)
 {
     // Set bounds of host window to full screen initially
     int width = GetSystemMetrics(SM_CXSCREEN);
@@ -872,7 +871,7 @@ BOOL SetupMagnifier(HINSTANCE hinst)
 
     // Create a magnifier control that fills the client area.
     GetClientRect(hwndHost, &magWindowRectClient);
-    hwndMag = CreateWindow(WC_MAGNIFIER, TEXT("MagnifierWindow"),
+    hwndMag = CreateWindow(WC_MAGNIFIER, TEXT("ScreenFilterWindow"),
         WS_CHILD | MS_SHOWMAGNIFIEDCURSOR | WS_VISIBLE,
         magWindowRectClient.left, magWindowRectClient.top,
         magWindowRectClient.right - magWindowRectClient.left,
@@ -909,7 +908,7 @@ void HandleRectangleSelection(POINT clickPoint)
     case SELECTION_NONE:
         firstPoint = clickPoint;
         selectionState = SELECTION_FIRST_POINT;
-        SetWindowText(hwndHost, TEXT("Screen Magnifier - Click second point"));
+        SetWindowText(hwndHost, TEXT("Screen Filter - Click second point"));
         break;
 
     case SELECTION_FIRST_POINT:
@@ -934,7 +933,7 @@ void HandleRectangleSelection(POINT clickPoint)
         // Create shortcut instruction text with current key bindings
         TCHAR instructionText[256];
         _stprintf_s(instructionText, 256,
-            TEXT("Screen Magnifier - Area Selected (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+1-9=Save)"),
+            TEXT("Screen Filter - Area Selected (%c=Invert, %c=Grayscale, %c=White Level, Ctrl+1-9=Save)"),
             shortcuts.toggleInvertKey, shortcuts.toggleGrayscaleKey, shortcuts.cycleWhiteLevelKey);
         SetWindowText(hwndHost, instructionText);
         break;
@@ -1085,13 +1084,13 @@ void ApplyColorEffects()
             _stprintf_s(keyText, 8, TEXT("%c"), shortcuts.globalHotkeyKey);
             _tcscat_s(hotkeyText, 64, keyText);
 
-            _stprintf_s(titleText, 256, TEXT("Magnifier - %s to unpin window"), hotkeyText);
+            _stprintf_s(titleText, 256, TEXT("Filter - %s to unpin window"), hotkeyText);
         }
         else
         {
             // When not pinned, show normal color/inversion status
             float grayLevels[] = { 1.0f, 0.8f, 0.6f, 0.4f };
-            _stprintf_s(titleText, 256, TEXT("Magnifier - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+1-9=Save)"),
+            _stprintf_s(titleText, 256, TEXT("Filter - %s%s Gray:%.0f%% (%c=Invert, %c=Colour, %c=White level, Ctrl+1-9=Save)"),
                 inversionEnabled ? TEXT("Inverted ") : TEXT(""),
                 grayscaleEnabled ? TEXT("Grayscale ") : TEXT("Color "),
                 grayLevels[grayLevel] * 100.0f,
