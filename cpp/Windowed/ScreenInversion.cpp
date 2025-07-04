@@ -694,7 +694,7 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 // Save current rectangle to slot
                 SaveCurrentRectangle(slot);
             }
-            else if (!ctrlPressed && selectionState == SELECTION_NONE)
+            else if (!ctrlPressed && (selectionState == SELECTION_NONE || selectionState == SELECTION_COMPLETE))
             {
                 // Load rectangle from slot
                 LoadRectangle(slot);
