@@ -479,7 +479,6 @@ void ApplyLoadedRectangle(const RECT& rect)
     SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
     SetWindowPos(hwndHost, HWND_TOPMOST, rect.left, rect.top, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     ApplyDarkModeToWindow(hwndHost);
-    inversionEnabled = TRUE;
     SetWindowLong(hwndHost, GWL_EXSTYLE, GetWindowLong(hwndHost, GWL_EXSTYLE) | WS_EX_LAYERED);
     SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
     ApplyColorEffects();
