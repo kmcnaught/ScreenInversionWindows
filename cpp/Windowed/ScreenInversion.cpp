@@ -456,10 +456,32 @@ void SaveCurrentRectangle(int slot)
 //
 void ApplyLoadedRectangle(const RECT& rect)
 {
-    selectedRect = rect;
+    // The loaded rectangle is a full window rectangle (including borders and title bar)
+    // We need to convert it back to the client area coordinates for selectedRect
+    LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
+    LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
+    LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
+    
+    // Convert window bounds back to client area bounds
+    selectedRect.left = rect.left + borderWidth;
+    selectedRect.top = rect.top + titleBarHeight + borderHeight;
+    selectedRect.right = rect.right - borderWidth;
+    selectedRect.bottom = rect.bottom - borderHeight;
+    
     selectionState = SELECTION_COMPLETE;
 
-    ResizeToSelectedRectangle();
+    // Apply the window position directly since rect already contains the proper window bounds
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    
+    ShowWindow(hwndHost, SW_RESTORE);
+    hostWindowRect = rect;
+    SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
+    SetWindowPos(hwndHost, HWND_TOPMOST, rect.left, rect.top, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    ApplyDarkModeToWindow(hwndHost);
+    inversionEnabled = TRUE;
+    SetWindowLong(hwndHost, GWL_EXSTYLE, GetWindowLong(hwndHost, GWL_EXSTYLE) | WS_EX_LAYERED);
+    SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
     ApplyColorEffects();
 
     // Update title to show that a rectangle was loaded
