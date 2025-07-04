@@ -950,21 +950,38 @@ void ResizeToSelectedRectangle()
     if (selectionState != SELECTION_COMPLETE)
         return;
 
-    int width = selectedRect.right - selectedRect.left;
-    int height = selectedRect.bottom - selectedRect.top;
+    // Calculate the desired client area size (the actual magnified content area)
+    int clientWidth = selectedRect.right - selectedRect.left;
+    int clientHeight = selectedRect.bottom - selectedRect.top;
+
+    // Get the window frame dimensions
+    LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
+    LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
+    LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
+
+    // Calculate the total window size needed to achieve the desired client area
+    int windowWidth = clientWidth + (2 * borderWidth);
+    int windowHeight = clientHeight + titleBarHeight + (2 * borderHeight);
+
+    // Calculate window position so that the CLIENT area matches the selected rectangle
+    int windowX = selectedRect.left - borderWidth;
+    int windowY = selectedRect.top - titleBarHeight - borderHeight;
 
     // First, ensure the window is in normal (not maximized) state
     ShowWindow(hwndHost, SW_RESTORE);
 
-    // Update host window rect for future reference
-    hostWindowRect = selectedRect;
+    // Update host window rect for future reference (store the actual window bounds)
+    hostWindowRect.left = windowX;
+    hostWindowRect.top = windowY;
+    hostWindowRect.right = windowX + windowWidth;
+    hostWindowRect.bottom = windowY + windowHeight;
 
     // Remove the maximized state and set normal window styles
     SetWindowLong(hwndHost, GWL_STYLE, RESTOREDWINDOWSTYLES);
 
     // Resize and reposition the window
     SetWindowPos(hwndHost, HWND_TOPMOST,
-        selectedRect.left, selectedRect.top, width, height,
+        windowX, windowY, windowWidth, windowHeight,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
     // Reapply dark mode after style changes
