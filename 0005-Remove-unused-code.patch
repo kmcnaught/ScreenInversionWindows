@@ -1,0 +1,44 @@
+From 35fc34788def159bf681d53aa69bb23a9d8ff3c8 Mon Sep 17 00:00:00 2001
+From: Kirsty McNaught <kirsty.mcnaught@gmail.com>
+Date: Mon, 19 May 2025 14:24:40 +0100
+Subject: [PATCH 5/6] Remove unused code
+
+---
+ .../cpp/Windowed/MagnifierSample.cpp          | 21 -------------------
+ 1 file changed, 21 deletions(-)
+
+diff --git a/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp b/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp
+index b786f279..a43af9a1 100644
+--- a/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp
++++ b/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp
+@@ -288,27 +288,6 @@ void CALLBACK UpdateMagWindow(HWND /*hwnd*/, UINT /*uMsg*/, UINT_PTR /*idEvent*/
+     sourceRect.right = sourceRect.left + width;
+     sourceRect.bottom = sourceRect.top + height;
+ 
+-    // Don't scroll outside desktop area.
+-    /*if (sourceRect.left < 0)
+-    {
+-        sourceRect.left = 0;
+-    }
+-    if (sourceRect.left > GetSystemMetrics(SM_CXSCREEN) - width)
+-    {
+-        sourceRect.left = GetSystemMetrics(SM_CXSCREEN) - width;
+-    }
+-    sourceRect.right = sourceRect.left + width;
+-
+-    if (sourceRect.top < 0)
+-    {
+-        sourceRect.top = 0;
+-    }
+-    if (sourceRect.top > GetSystemMetrics(SM_CYSCREEN) - height)
+-    {
+-        sourceRect.top = GetSystemMetrics(SM_CYSCREEN) - height;
+-    }*/
+-    sourceRect.bottom = sourceRect.top + height;
+-
+     // Set the source rectangle for the magnifier control.
+     MagSetWindowSource(hwndMag, sourceRect);
+ 
+-- 
+2.47.0.windows.2
+

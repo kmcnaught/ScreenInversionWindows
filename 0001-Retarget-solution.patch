@@ -1,0 +1,77 @@
+From 625924393e763aaf974fea0653598ce30ea8bf75 Mon Sep 17 00:00:00 2001
+From: Kirsty McNaught <kirsty.mcnaught@gmail.com>
+Date: Mon, 19 May 2025 12:55:10 +0100
+Subject: [PATCH 1/6] Retarget solution
+
+---
+ .../cpp/Fullscreen/FullscreenMagnifierSample.vcxproj      | 8 ++++----
+ .../Magnification/cpp/Windowed/MagnifierSample.vcxproj    | 8 ++++----
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/Samples/Magnification/cpp/Fullscreen/FullscreenMagnifierSample.vcxproj b/Samples/Magnification/cpp/Fullscreen/FullscreenMagnifierSample.vcxproj
+index 3c07ce05..3a8944c6 100644
+--- a/Samples/Magnification/cpp/Fullscreen/FullscreenMagnifierSample.vcxproj
++++ b/Samples/Magnification/cpp/Fullscreen/FullscreenMagnifierSample.vcxproj
+@@ -27,27 +27,27 @@
+     <ConfigurationType>Application</ConfigurationType>
+     <UseDebugLibraries>true</UseDebugLibraries>
+     <CharacterSet>Unicode</CharacterSet>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+     <UseDebugLibraries>true</UseDebugLibraries>
+     <CharacterSet>Unicode</CharacterSet>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+     <UseDebugLibraries>false</UseDebugLibraries>
+     <WholeProgramOptimization>true</WholeProgramOptimization>
+     <CharacterSet>Unicode</CharacterSet>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+     <UseDebugLibraries>false</UseDebugLibraries>
+     <WholeProgramOptimization>true</WholeProgramOptimization>
+     <CharacterSet>Unicode</CharacterSet>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+   <ImportGroup Label="ExtensionSettings">
+diff --git a/Samples/Magnification/cpp/Windowed/MagnifierSample.vcxproj b/Samples/Magnification/cpp/Windowed/MagnifierSample.vcxproj
+index 26f0b550..a919ba4c 100644
+--- a/Samples/Magnification/cpp/Windowed/MagnifierSample.vcxproj
++++ b/Samples/Magnification/cpp/Windowed/MagnifierSample.vcxproj
+@@ -24,19 +24,19 @@
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+     <ConfigurationType>Application</ConfigurationType>
+-    <PlatformToolset>V110</PlatformToolset>
++    <PlatformToolset>v143</PlatformToolset>
+   </PropertyGroup>
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+   <ImportGroup Label="ExtensionSettings">
+-- 
+2.47.0.windows.2
+

@@ -1,0 +1,151 @@
+From 15b83cafe244058e6e03a72c6507cf14df60bee7 Mon Sep 17 00:00:00 2001
+From: Kirsty McNaught <kirsty.mcnaught@gmail.com>
+Date: Mon, 19 May 2025 12:56:29 +0100
+Subject: [PATCH 4/6] Keep source and dest aligned
+
+i.e. always show what's exactly underneath it, no translation
+---
+ .../cpp/Windowed/MagnifierSample.cpp          | 68 ++++++++++++++-----
+ 1 file changed, 50 insertions(+), 18 deletions(-)
+
+diff --git a/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp b/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp
+index a4c4b77d..b786f279 100644
+--- a/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp
++++ b/Samples/Magnification/cpp/Windowed/MagnifierSample.cpp
+@@ -57,7 +57,8 @@ const TCHAR         WindowTitle[]= TEXT("Screen Magnifier Sample");
+ const UINT          timerInterval = 16; // close to the refresh rate @60hz
+ HWND                hwndMag;
+ HWND                hwndHost;
+-RECT                magWindowRect;
++RECT                magWindowRectClient;
++RECT                magWindowRectWindow;
+ RECT                hostWindowRect;
+ 
+ // Forward declarations.
+@@ -145,10 +146,20 @@ LRESULT CALLBACK HostWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
+     case WM_SIZE:
+         if ( hwndMag != NULL )
+         {
+-            GetClientRect(hWnd, &magWindowRect);
++            GetClientRect(hWnd, &magWindowRectClient);
+             // Resize the control to fill the window.
+             SetWindowPos(hwndMag, NULL, 
+-                magWindowRect.left, magWindowRect.top, magWindowRect.right, magWindowRect.bottom, 0);
++                magWindowRectClient.left, magWindowRectClient.top, magWindowRectClient.right, magWindowRectClient.bottom, 0);
++        }
++        break;
++    case WM_WINDOWPOSCHANGED: 
++        if (hwndMag != NULL)
++        {
++            GetWindowRect(hWnd, &magWindowRectWindow);
++            GetClientRect(hWnd, &magWindowRectClient);
++            // Resize the control to fill the window.
++            SetWindowPos(hwndMag, NULL,
++                magWindowRectClient.left, magWindowRectClient.top, magWindowRectClient.right, magWindowRectClient.bottom, 0);
+         }
+         break;
+ 
+@@ -186,17 +197,23 @@ ATOM RegisterHostWindowClass(HINSTANCE hInstance)
+ BOOL SetupMagnifier(HINSTANCE hinst)
+ {
+     // Set bounds of host window according to screen size.
+-    hostWindowRect.top = 0;
+-    hostWindowRect.bottom = GetSystemMetrics(SM_CYSCREEN) / 4;  // top quarter of screen
+-    hostWindowRect.left = 0;
+-    hostWindowRect.right = GetSystemMetrics(SM_CXSCREEN);
++
++    int width = GetSystemMetrics(SM_CXSCREEN);
++    int height = GetSystemMetrics(SM_CYSCREEN);
++
++    hostWindowRect.top = height / 4;
++    hostWindowRect.bottom = height / 2;
++    hostWindowRect.left = width / 4;
++    hostWindowRect.right = width / 2;
+ 
+     // Create the host window.
+     RegisterHostWindowClass(hinst);
+     hwndHost = CreateWindowEx(WS_EX_TOPMOST | WS_EX_LAYERED, 
+         WindowClassName, WindowTitle, 
+         RESTOREDWINDOWSTYLES,
+-        0, 0, hostWindowRect.right, hostWindowRect.bottom, NULL, NULL, hInst, NULL);
++        hostWindowRect.left, hostWindowRect.top,
++        hostWindowRect.right, hostWindowRect.bottom,
++        NULL, NULL, hInst, NULL);
+     if (!hwndHost)
+     {
+         return FALSE;
+@@ -206,10 +223,10 @@ BOOL SetupMagnifier(HINSTANCE hinst)
+     SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
+ 
+     // Create a magnifier control that fills the client area.
+-    GetClientRect(hwndHost, &magWindowRect);
++    GetClientRect(hwndHost, &magWindowRectClient);
+     hwndMag = CreateWindow(WC_MAGNIFIER, TEXT("MagnifierWindow"), 
+         WS_CHILD | MS_SHOWMAGNIFIEDCURSOR | WS_VISIBLE,
+-        magWindowRect.left, magWindowRect.top, magWindowRect.right, magWindowRect.bottom, hwndHost, NULL, hInst, NULL );
++        magWindowRectClient.left, magWindowRectClient.top, magWindowRectClient.right, magWindowRectClient.bottom, hwndHost, NULL, hInst, NULL );
+     if (!hwndMag)
+     {
+         return FALSE;
+@@ -249,17 +266,30 @@ BOOL SetupMagnifier(HINSTANCE hinst)
+ //
+ void CALLBACK UpdateMagWindow(HWND /*hwnd*/, UINT /*uMsg*/, UINT_PTR /*idEvent*/, DWORD /*dwTime*/)
+ {
+-    POINT mousePoint;
+-    GetCursorPos(&mousePoint);
+ 
+-    int width = (int)((magWindowRect.right - magWindowRect.left) / MAGFACTOR);
+-    int height = (int)((magWindowRect.bottom - magWindowRect.top) / MAGFACTOR);
++    // Get styles for adjustments
++    LONG titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
++    LONG borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);   
++    LONG borderHeight = GetSystemMetrics(SM_CYSIZEFRAME);
++
++    // Calculate the correct source rectangle relative to the screen
+     RECT sourceRect;
+-    sourceRect.left = mousePoint.x - width / 2;
+-    sourceRect.top = mousePoint.y -  height / 2;
++
++    int fudge = 4; // ?? required to make things line up. - or double the frame??
++    
++    sourceRect.left = magWindowRectWindow.left + magWindowRectClient.left + borderWidth + fudge;
++    sourceRect.top = magWindowRectWindow.top + magWindowRectClient.top + titleBarHeight + borderHeight + fudge;
++
++    // Calculate the width and height based on client area size
++    int width = (int)((magWindowRectWindow.right - magWindowRectWindow.left) / MAGFACTOR);
++    int height = (int)((magWindowRectWindow.bottom - magWindowRectWindow.top) / MAGFACTOR);
++
++    // Adjust the source rectangle bounds
++    sourceRect.right = sourceRect.left + width;
++    sourceRect.bottom = sourceRect.top + height;
+ 
+     // Don't scroll outside desktop area.
+-    if (sourceRect.left < 0)
++    /*if (sourceRect.left < 0)
+     {
+         sourceRect.left = 0;
+     }
+@@ -276,7 +306,7 @@ void CALLBACK UpdateMagWindow(HWND /*hwnd*/, UINT /*uMsg*/, UINT_PTR /*idEvent*/
+     if (sourceRect.top > GetSystemMetrics(SM_CYSCREEN) - height)
+     {
+         sourceRect.top = GetSystemMetrics(SM_CYSCREEN) - height;
+-    }
++    }*/
+     sourceRect.bottom = sourceRect.top + height;
+ 
+     // Set the source rectangle for the magnifier control.
+@@ -299,9 +329,11 @@ void CALLBACK UpdateMagWindow(HWND /*hwnd*/, UINT /*uMsg*/, UINT_PTR /*idEvent*/
+ void GoFullScreen()
+ {
+     isFullScreen = TRUE;
++
+     // The window must be styled as layered for proper rendering. 
+     // It is styled as transparent so that it does not capture mouse clicks.
+     SetWindowLong(hwndHost, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT);
++
+     // Give the window a system menu so it can be closed on the taskbar.
+     SetWindowLong(hwndHost, GWL_STYLE,  WS_CAPTION | WS_SYSMENU);
+ 
+-- 
+2.47.0.windows.2
+

@@ -128,6 +128,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ScreenInversion.cpp" />
+    <ClCompile Include="SavedRectanglesManager.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="SavedRectanglesManager.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
