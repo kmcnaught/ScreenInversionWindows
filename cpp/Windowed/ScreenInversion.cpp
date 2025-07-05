@@ -184,7 +184,7 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
             // Another instance is already selecting, exit this instance
             MagUninitialize();
             return 0;
-        }
+        }   
     } while (existingWindow != NULL);
 
     // Load shortcut configuration and saved rectangles
@@ -306,12 +306,87 @@ void LoadSavedRectangles()
 //
 // FUNCTION: SaveSavedRectangles()
 //
-// PURPOSE: Saves current rectangle configurations to file.
+// PURPOSE: Saves current rectangle configurations to file, preserving existing entries from other instances.
 //
 void SaveSavedRectangles()
 {
-    std::ofstream rectsFile(SavedRectangles::RECTS_FILE);
+    // First, read the current file to preserve entries from other instances
+    SavedRectangles allRects;
+    std::ifstream readFile(SavedRectangles::RECTS_FILE);
+    if (readFile.is_open())
+    {
+        std::string line;
+        while (std::getline(readFile, line))
+        {
+            if (line.empty() || line[0] == '#' || line[0] == ';')
+                continue;
 
+            size_t equalPos = line.find('=');
+            if (equalPos != std::string::npos)
+            {
+                std::string slotStr = line.substr(0, equalPos);
+                std::string dataStr = line.substr(equalPos + 1);
+
+                slotStr.erase(0, slotStr.find_first_not_of(" \t"));
+                slotStr.erase(slotStr.find_last_not_of(" \t") + 1);
+                dataStr.erase(0, dataStr.find_first_not_of(" \t"));
+                dataStr.erase(dataStr.find_last_not_of(" \t") + 1);
+
+                int slot = atoi(slotStr.c_str());
+                if (slot >= 0 && slot < NUM_SAVED_RECTS)
+                {
+                    std::stringstream ss(dataStr);
+                    std::string item;
+                    std::vector<std::string> items;
+
+                    while (std::getline(ss, item, ','))
+                    {
+                        items.push_back(item);
+                    }
+
+                    if (items.size() >= 4)
+                    {
+                        allRects.rects[slot].left = atoi(items[0].c_str());
+                        allRects.rects[slot].top = atoi(items[1].c_str());
+                        allRects.rects[slot].right = atoi(items[2].c_str());
+                        allRects.rects[slot].bottom = atoi(items[3].c_str());
+
+                        if (items.size() >= 7)
+                        {
+                            allRects.inversionSettings[slot] = (atoi(items[4].c_str()) != 0);
+                            allRects.grayscaleSettings[slot] = (atoi(items[5].c_str()) != 0);
+                            allRects.grayLevelSettings[slot] = atoi(items[6].c_str());
+                        }
+                        else
+                        {
+                            allRects.inversionSettings[slot] = true;
+                            allRects.grayscaleSettings[slot] = false;
+                            allRects.grayLevelSettings[slot] = 0;
+                        }
+
+                        allRects.isValid[slot] = true;
+                    }
+                }
+            }
+        }
+        readFile.close();
+    }
+
+    // Update with our current valid entries
+    for (int i = 0; i < NUM_SAVED_RECTS; i++)
+    {
+        if (savedRects.isValid[i])
+        {
+            allRects.rects[i] = savedRects.rects[i];
+            allRects.inversionSettings[i] = savedRects.inversionSettings[i];
+            allRects.grayscaleSettings[i] = savedRects.grayscaleSettings[i];
+            allRects.grayLevelSettings[i] = savedRects.grayLevelSettings[i];
+            allRects.isValid[i] = true;
+        }
+    }
+
+    // Write the merged results
+    std::ofstream rectsFile(SavedRectangles::RECTS_FILE);
     if (!rectsFile.is_open())
         return;
 
@@ -324,16 +399,16 @@ void SaveSavedRectangles()
 
     for (int i = 0; i < NUM_SAVED_RECTS; i++)
     {
-        if (savedRects.isValid[i])
+        if (allRects.isValid[i])
         {
             rectsFile << i << "="
-                << savedRects.rects[i].left << ","
-                << savedRects.rects[i].top << ","
-                << savedRects.rects[i].right << ","
-                << savedRects.rects[i].bottom << ","
-                << (savedRects.inversionSettings[i] ? 1 : 0) << ","
-                << (savedRects.grayscaleSettings[i] ? 1 : 0) << ","
-                << savedRects.grayLevelSettings[i] << "\n";
+                << allRects.rects[i].left << ","
+                << allRects.rects[i].top << ","
+                << allRects.rects[i].right << ","
+                << allRects.rects[i].bottom << ","
+                << (allRects.inversionSettings[i] ? 1 : 0) << ","
+                << (allRects.grayscaleSettings[i] ? 1 : 0) << ","
+                << allRects.grayLevelSettings[i] << "\n";
         }
     }
 
