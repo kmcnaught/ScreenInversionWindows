@@ -227,6 +227,9 @@ void SaveSavedRectangles()
 //
 void LoadRectangle(int slot)
 {
+    // Reload from file first to get latest saves from other instances
+    savedRects.Load();
+
     if (!savedRects.IsValid(slot))
     {
         // Show a brief message that the slot is empty
@@ -258,6 +261,9 @@ void LoadRectangle(int slot)
 //
 void CycleToNextSavedRectangle()
 {
+    // Reload from file first to get latest saves from other instances
+    savedRects.Load();
+
     int attempts = 0;
 
     // Look for the next valid saved rectangle (slots 1-9, skip slot 0)
