@@ -175,6 +175,18 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
         return 0;
     }
 
+    // Check if any other instance is already in selection mode (maximized)
+    HWND existingWindow = NULL;
+    do {
+        existingWindow = FindWindowEx(NULL, existingWindow, WindowClassName, NULL);
+        if (existingWindow && IsZoomed(existingWindow))
+        {
+            // Another instance is already selecting, exit this instance
+            MagUninitialize();
+            return 0;
+        }
+    } while (existingWindow != NULL);
+
     // Load shortcut configuration and saved rectangles
     LoadShortcutConfig();
     LoadSavedRectangles();
