@@ -887,8 +887,8 @@ BOOL SetupScreenFilter(HINSTANCE hinst)
     // Store instance handle
     hInst = hinst;
 
-    // Make the window opaque.
-    SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
+    // Make the window transparent initially so user can see underlying UI for selection
+    SetLayeredWindowAttributes(hwndHost, 0, 1, LWA_ALPHA);
 
     // Create a magnifier control that fills the client area.
     GetClientRect(hwndHost, &magWindowRectClient);
@@ -1016,7 +1016,7 @@ void ResizeToSelectedRectangle()
     SetWindowLong(hwndHost, GWL_EXSTYLE,
         GetWindowLong(hwndHost, GWL_EXSTYLE) | WS_EX_LAYERED);
 
-    // Set the window to be 255 (opaque) but enable per-pixel alpha
+    // Make the window opaque now that rectangle is selected
     SetLayeredWindowAttributes(hwndHost, 0, 255, LWA_ALPHA);
 }
 
